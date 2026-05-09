@@ -5,8 +5,8 @@
  *   - server   : pour les API routes (service role, RLS bypassé)
  */
 
-import { createBrowserClient } from '@supabase/ssr'
-import { createServerClient, type CookieOptions } from '@supabase/ssr'
+import { createBrowserClient, createServerClient } from '@supabase/ssr'
+import type { CookieOptions } from '@supabase/ssr'
 import type { Database } from './database.types'
 
 // ——— Variables d'environnement ———
@@ -97,7 +97,7 @@ export async function getActiveSession() {
 
 /** Log un événement comportemental */
 export async function logBehavioralEvent(
-  eventType: string,
+  eventType: import('@/types').BehavioralEventType,
   severity: 'info' | 'warning' | 'critical',
   description: string,
   metadata?: Record<string, unknown>,

@@ -65,7 +65,7 @@ export default function WeeklyPage() {
         .order('week_start', { ascending: false })
         .limit(10)
 
-      setReviews((data as WeeklyReview[]) ?? [])
+      setReviews(data ?? [])
       setIsLoading(false)
     }
     load()
@@ -117,7 +117,7 @@ export default function WeeklyPage() {
       .eq('user_id', user.id)
       .order('week_start', { ascending: false })
       .limit(10)
-    setReviews((updated as WeeklyReview[]) ?? [])
+    setReviews(updated ?? [])
   }
 
   if (isLoading) {

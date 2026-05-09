@@ -5,12 +5,13 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { analyzeRevengePatterns, analyzeTradeForm } from '@/lib/revenge-detection'
+import type { RevengeDetectionResult } from '@/types'
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
 
-    let result
+    let result: RevengeDetectionResult
     if (body.text) {
       // Analyse d'un seul champ
       result = analyzeRevengePatterns(body.text)

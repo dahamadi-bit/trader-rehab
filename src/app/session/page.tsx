@@ -65,6 +65,12 @@ export default function SessionPage() {
   const [cooldownRemaining, setCooldownRemaining] = useState(0)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
+  const startTimer = useCallback(() => {
+    timerRef.current = setInterval(() => {
+      setSessionMinutes(m => m + 1)
+    }, 60000)
+  }, [])
+
   // Chargement et vérification accès session
   useEffect(() => {
     async function init() {
@@ -102,7 +108,7 @@ export default function SessionPage() {
         return
       }
 
-      if (playbookData) setPlaybooks(playbookData as PlaybookSetup[])
+      if (playbookData) setPlaybooks(playbookData)
 
       // Session déjà active ?
       const { data: activeSession } = await supabase
@@ -135,13 +141,7 @@ export default function SessionPage() {
     init()
 
     return () => { if (timerRef.current) clearInterval(timerRef.current) }
-  }, [router])
-
-  const startTimer = useCallback(() => {
-    timerRef.current = setInterval(() => {
-      setSessionMinutes(m => m + 1)
-    }, 60000)
-  }, [])
+  }, [router, startTimer])
 
   // Démarrer une nouvelle session
   async function startSession() {
@@ -173,7 +173,7 @@ export default function SessionPage() {
   }
 
   // Fermeture de session
-  async function closeSession(reason: string = 'manual') {
+  async function closeSession(reason: 'manual' | 'revenge_detected' | 'max_losses' | 'timeout' | 'force_closed' = 'manual') {
     if (!session) return
     const { createClient } = await import('@/lib/supabase')
     const supabase = createClient()
@@ -312,7 +312,6 @@ export default function SessionPage() {
               />
             )}
             <PreTradeForm
-              session={session}
               playbooks={playbooks}
               onRevengeDetected={setRevengeAlert}
               onSubmit={async (data) => {
@@ -345,11 +344,9 @@ export default function SessionPage() {
         {/* Phase : trade actif */}
         {phase === 'active_trade' && session && (
           <ActiveTradePanel
-            session={session}
             onTradeClose={(result) => {
               const isLoss = result === 'loss'
               const newConsecLosses = isLoss ? session.consecutiveLosses + 1 : 0
-              const newWins = result === 'win' ? session.wins_count + 1 : session.wins_count || 0
 
               setSession(prev => prev ? {
                 ...prev,
@@ -408,7 +405,7 @@ interface PreTradeFormProps {
   onCancel: () => void
 }
 
-function PreTradeForm({ playbooks, onRevengeDetected, onSubmit, onCancel }: PreTradeFormProps) {
+function PreTradeForm({ playbooks, onRevengeDetected, onSubmit, onCancel }: Omit<PreTradeFormProps, 'session'>) {
   const { register, handleSubmit, watch, setValue, formState: { errors, isSubmitting } } = useForm<PreTradeFormData>({
     resolver: zodResolver(PreTradeSchema),
   })
@@ -638,7 +635,6 @@ function RevengeAlert({ result, onClose }: { result: RevengeDetectionResult; onC
 function ActiveTradePanel({
   onTradeClose,
 }: {
-  session: ActiveSessionState
   onTradeClose: (result: 'win' | 'loss' | 'breakeven') => void
 }) {
   const [notes, setNotes] = useState('')

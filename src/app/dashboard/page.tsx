@@ -170,7 +170,7 @@ function CheckInForm({ onComplete, userId }: CheckInFormProps) {
       .select()
       .single()
 
-    if (data && !error) onComplete(data as DailyCheckIn)
+    if (data && !error) onComplete(data)
     setSaving(false)
   }
 

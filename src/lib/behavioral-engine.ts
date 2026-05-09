@@ -17,6 +17,7 @@ import type {
   ActiveSessionState,
   Profile,
   RelapseMode,
+  CloseReason,
 } from '@/types'
 
 // ============================================================
@@ -153,7 +154,7 @@ export function shouldForceCloseSession(session: ActiveSessionState): {
   return { shouldClose: false, reason: null }
 }
 
-type CloseReason = 'max_losses' | 'revenge_detected' | 'manual' | 'timeout' | 'force_closed'
+
 
 // ============================================================
 // GESTION RECHUTE

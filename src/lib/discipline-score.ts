@@ -47,7 +47,7 @@ function calcPlanCompliance(trades: Trade[]): number {
   for (const trade of trades) {
     if (trade.plan_respected === true)          score += 1
     if (trade.playbook_setup_id)                score += 1
-    if (trade.plan_justification?.length > 20)  score += 1
+    if ((trade.plan_justification?.length ?? 0) > 20)  score += 1
   }
 
   return Math.round((score / max) * WEIGHTS.PLAN_COMPLIANCE)

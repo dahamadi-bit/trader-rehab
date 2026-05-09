@@ -33,7 +33,7 @@ export default function TradeDetailPage({ params }: { params: Promise<{ id: stri
       const { createClient } = await import('@/lib/supabase')
       const supabase = createClient()
       const { data } = await supabase.from('trades').select('*').eq('id', id).single()
-      setTrade(data as Trade)
+      setTrade(data)
       if (data) reset(data)
       setIsLoading(false)
     }
@@ -47,18 +47,20 @@ export default function TradeDetailPage({ params }: { params: Promise<{ id: stri
     if (!user) return
 
     if (isNew) {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { id: _id, created_at: _ca, updated_at: _ua, ...insertData } = data as Trade
       const { data: created } = await supabase
         .from('trades')
-        .insert({ user_id: user.id, ...data })
+        .insert({ user_id: user.id, ...insertData })
         .select().single()
-      if (created) { setTrade(created as Trade); setIsNew(false); setEditMode(false) }
+      if (created) { setTrade(created); setIsNew(false); setEditMode(false) }
     } else {
       const { data: updated } = await supabase
         .from('trades')
         .update(data)
         .eq('id', id)
         .select().single()
-      if (updated) { setTrade(updated as Trade); setEditMode(false) }
+      if (updated) { setTrade(updated); setEditMode(false) }
     }
   }
 
@@ -259,11 +261,11 @@ function TradeForm({ trade, register, handleSubmit, onSubmit, onCancel }: {
 
         <div className="grid grid-cols-2 gap-4">
           <div><label className="field-label">Plan respecté</label>
-            <select {...register('plan_respected')} className="input-field">
+            <select {...register('plan_respected', { setValueAs: (v: string) => v === '' ? null : v === 'true' })} className="input-field">
               <option value="">—</option><option value="true">Oui</option><option value="false">Non</option>
             </select></div>
           <div><label className="field-label">Stop déplacé</label>
-            <select {...register('stop_moved')} className="input-field">
+            <select {...register('stop_moved', { setValueAs: (v: string) => v === 'true' })} className="input-field">
               <option value="false">Non</option><option value="true">Oui</option>
             </select></div>
         </div>

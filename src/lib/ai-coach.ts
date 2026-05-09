@@ -168,7 +168,7 @@ export async function analyzePatterns(trades: Trade[]): Promise<{
     win_rate: trades.filter(t => t.result === 'win').length / trades.length,
     avg_rr: trades.filter(t => t.rr_ratio).reduce((a, t) => a + (t.rr_ratio ?? 0), 0) / trades.filter(t => t.rr_ratio).length,
     plan_respected_rate: trades.filter(t => t.plan_respected).length / trades.length,
-    revenge_trade_count: trades.filter(t => t.revenge_flags?.length > 0).length,
+    revenge_trade_count: trades.filter(t => (t.revenge_flags?.length ?? 0) > 0).length,
     stop_moved_count: trades.filter(t => t.stop_moved).length,
     main_errors: trades.map(t => t.main_error).filter(Boolean),
     emotions_before: trades.map(t => t.emotion_before).filter(Boolean),

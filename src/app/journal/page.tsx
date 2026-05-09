@@ -47,7 +47,7 @@ export default function JournalPage() {
         .order('created_at', { ascending: false })
         .limit(100)
 
-      setTrades((data as Trade[]) ?? [])
+      setTrades(data ?? [])
       setIsLoading(false)
     }
     load()
@@ -363,7 +363,7 @@ function BehavioralAnalytics({ trades }: { trades: Trade[] }) {
             <YAxis tick={{ fontSize: 10, fill: '#4a4a4a' }} axisLine={false} tickLine={false} />
             <Tooltip
               contentStyle={{ background: '#141414', border: '1px solid #2a2a2a', borderRadius: 4, fontSize: 11 }}
-              formatter={(v: number) => [`${v.toFixed(2)} $`, 'PnL cumulé']}
+              formatter={(v: unknown) => [`${(v as number).toFixed(2)} $`, 'PnL cumulé']}
             />
             <Line
               type="monotone" dataKey="cumPnl"

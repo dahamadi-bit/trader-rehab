@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from 'next'
+import type { ReactNode } from 'react'
 import { Inter } from 'next/font/google'
 import './globals.css'
 
@@ -21,7 +22,7 @@ export const viewport: Viewport = {
   initialScale: 1,
 }
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="fr" className={inter.variable}>
       <body className="bg-[#0d0d0d] text-neutral-100 font-sans antialiased min-h-screen">

@@ -43,7 +43,7 @@ export default function PlaybookPage() {
         .eq('user_id', user.id)
         .order('created_at', { ascending: false })
 
-      setSetups((data as PlaybookSetup[]) ?? [])
+      setSetups(data ?? [])
       setIsLoading(false)
     }
     load()
@@ -62,7 +62,7 @@ export default function PlaybookPage() {
       .single()
 
     if (newSetup) {
-      setSetups(prev => [newSetup as PlaybookSetup, ...prev])
+      setSetups(prev => [newSetup, ...prev])
       reset()
       setShowForm(false)
     }

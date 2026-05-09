@@ -47,8 +47,8 @@ export default function AntiAddictionPage() {
           .limit(20),
       ])
 
-      setProfile(profileData as Profile)
-      setEvents((eventsData as BehavioralEvent[]) ?? [])
+      setProfile(profileData)
+      setEvents(eventsData ?? [])
       setIsLoading(false)
     }
     load()
