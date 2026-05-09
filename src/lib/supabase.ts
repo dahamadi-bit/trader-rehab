@@ -28,13 +28,13 @@ export function createServerSupabaseClient(
 ) {
   return createServerClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     cookies: {
-      get(name) {
+      get(name: string) {
         return cookies.get(name)?.value
       },
-      set(name, value, options) {
+      set(name: string, value: string, options: CookieOptions) {
         cookies.set(name, value, options)
       },
-      remove(name, options) {
+      remove(name: string, options: CookieOptions) {
         cookies.delete(name, options)
       },
     },
