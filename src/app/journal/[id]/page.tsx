@@ -48,7 +48,7 @@ export default function TradeDetailPage({ params }: { params: Promise<{ id: stri
 
     if (isNew) {
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const { id: _id, created_at: _ca, updated_at: _ua, ...insertData } = data as Trade
+      const { id: _id, created_at: _ca, updated_at: _ua, user_id: _uid, ...insertData } = data as Trade
       const { data: created } = await supabase
         .from('trades')
         .insert({ user_id: user.id, ...insertData })

@@ -433,7 +433,7 @@ function PreTradeForm({ playbooks, onRevengeDetected, onSubmit, onCancel }: Omit
   // Analyse revenge en temps réel sur la justification
   const justification = watch('plan_justification')
   useEffect(() => {
-    if (justification?.length > 20) {
+    if ((justification?.length ?? 0) > 20) {
       const result = analyzeRevengePatterns(justification)
       setJustificationAnalysis(result)
       if (result.detected) onRevengeDetected(result)
