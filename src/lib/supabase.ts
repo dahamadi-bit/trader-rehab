@@ -7,7 +7,6 @@
 
 import { createBrowserClient, createServerClient } from '@supabase/ssr'
 import type { CookieOptions } from '@supabase/ssr'
-import type { Database } from './database.types'
 
 // ——— Variables d'environnement ———
 const SUPABASE_URL      = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -15,7 +14,7 @@ const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 
 // ——— Client Browser (composants client) ———
 export function createClient() {
-  return createBrowserClient<Database>(SUPABASE_URL, SUPABASE_ANON_KEY)
+  return createBrowserClient(SUPABASE_URL, SUPABASE_ANON_KEY)
 }
 
 // ——— Client Server (API routes, Server Components) ———
@@ -27,7 +26,7 @@ export function createServerSupabaseClient(
     delete(name: string, options: CookieOptions): void
   }
 ) {
-  return createServerClient<Database>(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  return createServerClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     cookies: {
       get(name) {
         return cookies.get(name)?.value
