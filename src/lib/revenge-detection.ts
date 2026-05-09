@@ -178,7 +178,7 @@ export function analyzeRevengePatterns(text: string): RevengeDetectionResult {
 
   return {
     detected: riskScore >= 35 || category === 'revenge',
-    flags: [...new Set(flags)],  // Dédupliqué
+    flags: Array.from(new Set(flags)),  // Dédupliqué
     riskScore,
     category,
   }
