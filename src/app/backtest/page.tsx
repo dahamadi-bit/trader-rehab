@@ -208,8 +208,14 @@ function ActiveBacktestSession({
   onAddEntry: (entry: BacktestEntry) => void
   onClose: () => void
 }) {
-  const [entry, setEntry] = useState({
-    direction: 'long' as const,
+  const [entry, setEntry] = useState<{
+    direction: 'long' | 'short'
+    entryPrice: number
+    stopLoss: number
+    takeProfit: number
+    notes: string
+  }>({
+    direction: 'long',
     entryPrice: 0,
     stopLoss: 0,
     takeProfit: 0,
