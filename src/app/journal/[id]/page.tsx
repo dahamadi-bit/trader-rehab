@@ -8,6 +8,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import { useForm } from 'react-hook-form'
+import type { UseFormRegister, UseFormHandleSubmit } from 'react-hook-form'
 import { clsx } from 'clsx'
 import Navigation from '@/components/shared/Navigation'
 import type { Trade } from '@/types'
@@ -274,13 +275,15 @@ function TradeView({ trade }: { trade: Trade }) {
 }
 
 // ——— Formulaire saisie/modification ———
-function TradeForm({ trade, register, handleSubmit, onSubmit, onCancel }: {
+interface TradeFormProps {
   trade: Trade | null
-  register: ReturnType<typeof useForm<Partial<Trade>>>['register']
-  handleSubmit: ReturnType<typeof useForm<Partial<Trade>>>['handleSubmit']
+  register: UseFormRegister<Partial<Trade>>
+  handleSubmit: UseFormHandleSubmit<Partial<Trade>>
   onSubmit: (data: Partial<Trade>) => Promise<void>
   onCancel: () => void
-}) {
+}
+
+function TradeForm({ trade, register, handleSubmit, onSubmit, onCancel }: TradeFormProps) {
   return (
     <div className="card">
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
@@ -336,4 +339,33 @@ function TradeForm({ trade, register, handleSubmit, onSubmit, onCancel }: {
         <div className="divider" />
         <div className="section-title">APRÈS</div>
 
-        <div cla
+        <div className="grid grid-cols-3 gap-4">
+          <div><label className="field-label">Résultat</label>
+            <select {...register('result')} defaultValue={trade?.result ?? ''} className="input-field">
+              <option value="">—</option><option value="win">Gain</option>
+              <option value="loss">Perte</option><option value="breakeven">Neutre</option>
+            </select></div>
+          <div><label className="field-label">PnL ($)</label>
+            <input {...register('pnl', { valueAsNumber: true })} type="number" step="0.01" className="input-field font-mono" /></div>
+          <div><label className="field-label">Qualité exec (1-10)</label>
+            <input {...register('execution_quality', { valueAsNumber: true })} type="number" min={1} max={10} className="input-field font-mono" /></div>
+        </div>
+
+        <div><label className="field-label">Erreur principale</label>
+          <select {...register('main_error')} defaultValue={trade?.main_error ?? ''} className="input-field">
+            <option value="none">Aucune</option><option value="impulse">Impulsivité</option>
+            <option value="revenge">Revenge trading</option><option value="overconfidence">Surconfiance</option>
+            <option value="fear">Peur</option><option value="fomo">FOMO</option>
+          </select></div>
+
+        <div><label className="field-label">Notes comportementales</label>
+          <textarea {...register('behavioral_notes')} rows={2} className="textarea-field" /></div>
+
+        <div className="flex gap-3">
+          <button type="submit" className="btn-primary flex-1">Enregistrer</button>
+          <button type="button" onClick={onCancel} className="btn-secondary flex-1">Annuler</button>
+        </div>
+      </form>
+    </div>
+  )
+}
