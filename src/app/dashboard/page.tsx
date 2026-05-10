@@ -18,6 +18,7 @@ import { useRouter } from 'next/navigation'
 import { clsx } from 'clsx'
 import Navigation from '@/components/shared/Navigation'
 import { evaluateEmotionalState, getDailyQuote, TRADING_ALTERNATIVES } from '@/lib/behavioral-engine'
+import { refreshDisciplineScore } from '@/lib/supabase'
 import type { DailyCheckIn, EmotionalAssessment, Profile } from '@/types'
 
 // ============================================================
@@ -112,9 +113,14 @@ export default function DashboardPage() {
               setShowCheckinForm(false)
             }}
             userId={profile?.id ?? ''}
+            existing={checkin}
           />
         ) : checkin && assessment ? (
-          <EmotionalStateCard checkin={checkin} assessment={assessment} />
+          <EmotionalStateCard
+            checkin={checkin}
+            assessment={assessment}
+            onEdit={() => setShowCheckinForm(true)}
+          />
         ) : null}
 
         {/* Accès Session */}
@@ -138,15 +144,21 @@ export default function DashboardPage() {
 interface CheckInFormProps {
   onComplete: (checkin: DailyCheckIn) => void
   userId: string
+  existing?: DailyCheckIn | null
 }
 
-function CheckInForm({ onComplete, userId }: CheckInFormProps) {
+function CheckInForm({ onComplete, userId, existing }: CheckInFormProps) {
   const [values, setValues] = useState({
-    fatigue: 3, stress: 3, euphoria: 3,
-    frustration: 3, motivation: 5,
-    sleep_quality: 5, sleep_hours: 7,
-    exercise_done: false, meditation_done: false,
-    notes: '',
+    fatigue:        existing?.fatigue        ?? 3,
+    stress:         existing?.stress         ?? 3,
+    euphoria:       existing?.euphoria       ?? 3,
+    frustration:    existing?.frustration    ?? 3,
+    motivation:     existing?.motivation     ?? 5,
+    sleep_quality:  existing?.sleep_quality  ?? 5,
+    sleep_hours:    existing?.sleep_hours    ?? 7,
+    exercise_done:  existing?.exercise_done  ?? false,
+    meditation_done:existing?.meditation_done?? false,
+    notes:          existing?.notes          ?? '',
   })
   const [saving, setSaving] = useState(false)
 
@@ -164,16 +176,28 @@ function CheckInForm({ onComplete, userId }: CheckInFormProps) {
     const { createClient } = await import('@/lib/supabase')
     const supabase = createClient()
 
-    const { data, error } = await supabase
-      .from('daily_checkins')
-      .insert({ user_id: userId, ...values })
-      .select()
-      .single()
+    let data, error
+    if (existing?.id) {
+      // Mise à jour du check-in existant
+      const res = await supabase
+        .from('daily_checkins')
+        .update(values)
+        .eq('id', existing.id)
+        .select()
+        .single()
+      data = res.data; error = res.error
+    } else {
+      // Nouveau check-in
+      const res = await supabase
+        .from('daily_checkins')
+        .insert({ user_id: userId, ...values })
+        .select()
+        .single()
+      data = res.data; error = res.error
+    }
 
     if (data && !error) {
       onComplete(data)
-      // Mise à jour du score en arrière-plan
-      const { refreshDisciplineScore } = await import('@/lib/supabase')
       refreshDisciplineScore().catch(() => {})
     }
     setSaving(false)
@@ -262,13 +286,24 @@ function CheckInForm({ onComplete, userId }: CheckInFormProps) {
           />
         </div>
 
-        <button
-          onClick={handleSubmit}
-          disabled={saving}
-          className="btn-primary w-full"
-        >
-          {saving ? 'Enregistrement…' : 'Valider le check-in'}
-        </button>
+        <div className="flex gap-3">
+          <button
+            onClick={handleSubmit}
+            disabled={saving}
+            className="btn-primary flex-1"
+          >
+            {saving ? 'Enregistrement…' : existing ? 'Mettre à jour' : 'Valider le check-in'}
+          </button>
+          {existing && (
+            <button
+              type="button"
+              onClick={() => onComplete(existing)}
+              className="btn-secondary flex-1"
+            >
+              Annuler
+            </button>
+          )}
+        </div>
       </div>
     </div>
   )
@@ -278,7 +313,7 @@ function CheckInForm({ onComplete, userId }: CheckInFormProps) {
 // CARTE ÉTAT ÉMOTIONNEL
 // ============================================================
 
-function EmotionalStateCard({ checkin, assessment }: { checkin: DailyCheckIn; assessment: EmotionalAssessment }) {
+function EmotionalStateCard({ checkin, assessment, onEdit }: { checkin: DailyCheckIn; assessment: EmotionalAssessment; onEdit: () => void }) {
   const metrics = [
     { label: 'Fatigue',     value: checkin.fatigue,     blocking: checkin.fatigue >= 7 },
     { label: 'Stress',      value: checkin.stress,      blocking: checkin.stress >= 7 },
@@ -290,7 +325,12 @@ function EmotionalStateCard({ checkin, assessment }: { checkin: DailyCheckIn; as
 
   return (
     <div className="card">
-      <div className="section-title mb-4">État du jour</div>
+      <div className="flex items-center justify-between mb-4">
+        <div className="section-title">État du jour</div>
+        <button onClick={onEdit} className="text-xxs text-neutral-600 hover:text-neutral-400 transition-colors">
+          Modifier
+        </button>
+      </div>
       <div className="grid grid-cols-3 gap-4">
         {metrics.map(({ label, value, blocking }) => (
           <div key={label} className={clsx('rounded p-3', blocking ? 'bg-[#e74c3c]/5 border border-[#e74c3c]/20' : 'bg-[#1a1a1a]')}>

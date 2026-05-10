@@ -7,6 +7,7 @@
 
 import { createBrowserClient, createServerClient } from '@supabase/ssr'
 import type { CookieOptions } from '@supabase/ssr'
+import { calculateDisciplineScore } from './discipline-score'
 
 // ——— Variables d'environnement ———
 const SUPABASE_URL      = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -120,7 +121,6 @@ export async function refreshDisciplineScore(): Promise<number> {
   const planViolations     = trades?.filter(t => t.plan_respected === false).length ?? 0
   const stopMovements      = trades?.filter(t => t.stop_moved === true).length ?? 0
 
-  const { calculateDisciplineScore } = await import('./discipline-score')
   const breakdown = calculateDisciplineScore({
     trades: trades ?? [],
     journalDaysLast30:  checkins?.length ?? 0,
