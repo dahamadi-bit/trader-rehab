@@ -38,6 +38,7 @@ export default function WeeklyPage() {
     recommendations: string[]
   } | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [selectedReview, setSelectedReview] = useState<WeeklyReview | null>(null)
 
   const { register, handleSubmit, watch } = useForm<WeeklyFormData>({
     defaultValues: {
@@ -252,13 +253,95 @@ export default function WeeklyPage() {
           </div>
         )}
 
+        {/* Détail d'un bilan sélectionné */}
+        {selectedReview && (
+          <div className="card border border-neutral-700/30 animate-fade-in">
+            <div className="flex items-center justify-between mb-4">
+              <div className="section-title">
+                Semaine du {new Date(selectedReview.week_start).toLocaleDateString('fr-FR')}
+              </div>
+              <button
+                onClick={() => setSelectedReview(null)}
+                className="text-xs text-neutral-600 hover:text-neutral-400"
+              >
+                ✕ Fermer
+              </button>
+            </div>
+
+            {/* Scores */}
+            {(selectedReview.discipline_score_week !== null || selectedReview.emotional_score_week !== null) && (
+              <div className="grid grid-cols-2 gap-4 mb-5">
+                {selectedReview.discipline_score_week !== null && (
+                  <div className="bg-[#1a1a1a] rounded p-4">
+                    <div className="text-xxs text-neutral-600 uppercase tracking-wider mb-1">Score discipline</div>
+                    <div className="text-3xl font-mono text-neutral-300">{selectedReview.discipline_score_week}</div>
+                  </div>
+                )}
+                {selectedReview.emotional_score_week !== null && (
+                  <div className="bg-[#1a1a1a] rounded p-4">
+                    <div className="text-xxs text-neutral-600 uppercase tracking-wider mb-1">Score émotionnel</div>
+                    <div className="text-3xl font-mono text-neutral-300">{selectedReview.emotional_score_week}</div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Champs texte */}
+            {[
+              { label: 'Émotion dominante',      value: selectedReview.dominant_emotion },
+              { label: 'Erreurs principales',     value: selectedReview.main_errors },
+              { label: 'Déclencheurs',            value: selectedReview.triggers },
+              { label: 'Autres activités',        value: selectedReview.other_activities },
+            ].filter(f => f.value).map(({ label, value }) => (
+              <div key={label} className="mb-3">
+                <div className="text-xxs text-neutral-600 uppercase tracking-wider mb-1">{label}</div>
+                <div className="text-xs text-neutral-400 leading-relaxed">{value}</div>
+              </div>
+            ))}
+
+            {/* Scores chiffrés */}
+            <div className="grid grid-cols-2 gap-3 mt-3 mb-4">
+              {[
+                { label: 'Respect du plan',           value: selectedReview.plan_respect_score },
+                { label: 'Qualité discipline',         value: selectedReview.discipline_quality },
+                { label: 'Envie revenge trading',      value: selectedReview.revenge_trading_urge },
+                { label: 'Difficulté à décrocher',     value: selectedReview.market_avoidance_difficulty },
+              ].filter(f => f.value !== null).map(({ label, value }) => (
+                <div key={label} className="bg-[#1a1a1a] rounded p-3">
+                  <div className="text-xxs text-neutral-600 mb-1">{label}</div>
+                  <div className="text-sm font-mono text-neutral-400">{value}/10</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Rapport IA */}
+            {selectedReview.ai_report && (
+              <div className="pt-4 border-t border-[#1a1a1a]">
+                <div className="text-xs text-neutral-500 font-medium mb-2">Analyse comportementale</div>
+                <pre className="text-xs text-neutral-600 leading-relaxed whitespace-pre-wrap font-sans">
+                  {selectedReview.ai_report}
+                </pre>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Historique bilans */}
         {reviews.length > 0 && (
           <div>
             <div className="section-title mb-3">Historique</div>
             <div className="space-y-2">
               {reviews.map(r => (
-                <div key={r.id} className="card py-3 flex items-center justify-between">
+                <button
+                  key={r.id}
+                  onClick={() => setSelectedReview(selectedReview?.id === r.id ? null : r)}
+                  className={clsx(
+                    'card py-3 flex items-center justify-between w-full text-left transition-colors',
+                    selectedReview?.id === r.id
+                      ? 'border-neutral-600'
+                      : 'hover:border-neutral-700 cursor-pointer'
+                  )}
+                >
                   <div>
                     <div className="text-sm text-neutral-300">
                       Semaine du {new Date(r.week_start).toLocaleDateString('fr-FR')}
@@ -280,8 +363,9 @@ export default function WeeklyPage() {
                         <div className="text-sm font-mono text-neutral-400">{r.emotional_score_week}</div>
                       </div>
                     )}
+                    <div className="text-neutral-700 text-xs">→</div>
                   </div>
-                </div>
+                </button>
               ))}
             </div>
           </div>
