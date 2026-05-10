@@ -284,31 +284,52 @@ export default function SessionPage() {
               <div className="mb-5">
                 <label className="field-label">Compte actif</label>
                 <div className="space-y-2">
-                  {accounts.map(acc => (
-                    <button
-                      key={acc.id}
-                      onClick={() => setSelectedAccount(acc)}
-                      className={clsx(
-                        'w-full text-left p-3 rounded border transition-colors',
-                        selectedAccount?.id === acc.id
-                          ? 'border-neutral-500 bg-[#1a1a1a]'
-                          : 'border-[#2a2a2a] hover:border-neutral-600'
-                      )}
-                    >
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <span className="text-sm text-neutral-300">{acc.name}</span>
-                          {acc.broker && <span className="text-xs text-neutral-600 ml-2">{acc.broker}</span>}
+                  {accounts.map(acc => {
+                    const isSelected = selectedAccount?.id === acc.id
+                    return (
+                      <button
+                        key={acc.id}
+                        onClick={() => setSelectedAccount(acc)}
+                        className={clsx(
+                          'w-full text-left p-3 rounded border transition-all duration-150',
+                          isSelected
+                            ? 'border-neutral-300 bg-neutral-800'
+                            : 'border-[#2a2a2a] bg-[#1a1a1a] hover:border-neutral-500'
+                        )}
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className={clsx(
+                            'w-3 h-3 rounded-full border-2 shrink-0 transition-colors',
+                            isSelected ? 'border-neutral-200 bg-neutral-200' : 'border-neutral-600'
+                          )} />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between">
+                              <span className={clsx('text-sm font-medium', isSelected ? 'text-neutral-100' : 'text-neutral-400')}>
+                                {acc.name}
+                              </span>
+                              <span className={clsx('text-xs font-mono', isSelected ? 'text-neutral-200' : 'text-neutral-600')}>
+                                {acc.account_balance.toLocaleString('fr-FR')} $
+                              </span>
+                            </div>
+                            {acc.broker && (
+                              <div className="text-xxs text-neutral-600 mt-0.5">
+                                {acc.broker} · {acc.account_type === 'prop_firm' ? 'Prop Firm' : acc.account_type === 'personal' ? 'Personnel' : 'Simulation'}
+                              </div>
+                            )}
+                          </div>
                         </div>
-                        <div className="text-xs text-neutral-600 font-mono">
-                          {acc.account_balance.toLocaleString('fr-FR')} $
-                        </div>
-                      </div>
-                      <div className="text-xxs text-neutral-700 mt-1">
-                        Risque {(acc.max_risk_per_trade * 100).toFixed(1)}% · Max {acc.max_trades_per_session} trades · {acc.max_consecutive_losses} pertes max
-                      </div>
-                    </button>
-                  ))}
+                        {isSelected && (
+                          <div className="mt-2 ml-6 text-xxs text-neutral-500 space-y-0.5">
+                            <span>Risque {(acc.max_risk_per_trade * 100).toFixed(1)}% / trade</span>
+                            <span className="mx-2">·</span>
+                            <span>Max {acc.max_trades_per_session} trades</span>
+                            <span className="mx-2">·</span>
+                            <span>{acc.max_consecutive_losses} pertes conséc. max</span>
+                          </div>
+                        )}
+                      </button>
+                    )
+                  })}
                 </div>
               </div>
             ) : (

@@ -19,6 +19,7 @@ export default function TradeDetailPage() {
   const [trade, setTrade] = useState<Trade | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [copied, setCopied] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
   const [editMode, setEditMode] = useState(false)
   const [isNew, setIsNew] = useState(id === 'new')
 
@@ -63,6 +64,14 @@ export default function TradeDetailPage() {
         .select().single()
       if (updated) { setTrade(updated); setEditMode(false) }
     }
+  }
+
+  async function deleteTrade() {
+    if (!trade) return
+    const { createClient } = await import('@/lib/supabase')
+    const supabase = createClient()
+    await supabase.from('trades').delete().eq('id', trade.id)
+    router.push('/journal')
   }
 
   function copyTradeForAnalysis() {
@@ -117,13 +126,20 @@ Analyse ce trade comportementalement. Identifie le pattern principal, ce qui a b
           </div>
           {!isNew && !editMode && (
             <div className="flex gap-2">
-            <button
-              onClick={copyTradeForAnalysis}
-              className="btn-secondary text-xs"
-            >
+            <button onClick={copyTradeForAnalysis} className="btn-secondary text-xs">
               {copied ? '✓ Copié' : 'Copier pour Claude'}
             </button>
             <button onClick={() => setEditMode(true)} className="btn-secondary text-xs">Modifier</button>
+            {!confirmDelete ? (
+              <button onClick={() => setConfirmDelete(true)} className="btn-danger text-xs">
+                Supprimer
+              </button>
+            ) : (
+              <div className="flex gap-1">
+                <button onClick={deleteTrade} className="btn-danger text-xs">Confirmer</button>
+                <button onClick={() => setConfirmDelete(false)} className="btn-secondary text-xs">Annuler</button>
+              </div>
+            )}
           </div>
           )}
         </div>
