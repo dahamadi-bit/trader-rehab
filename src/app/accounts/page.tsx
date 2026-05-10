@@ -404,7 +404,7 @@ export default function AccountsPage() {
               </div>
 
               {/* Capital */}
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="field-label">Solde actuel ($)</label>
                   <input
@@ -420,40 +420,81 @@ export default function AccountsPage() {
                     type="number" step="100"
                     className="input-field font-mono"
                   />
+                  <p className="text-xxs text-neutral-700 mt-1">Sert de référence pour le drawdown</p>
                 </div>
-                <div>
-                  <label className="field-label">Plancher drawdown ($)</label>
-                  <input
-                    {...register('drawdown_floor', { valueAsNumber: true })}
-                    type="number" step="100"
-                    placeholder="0 = aucun"
-                    className="input-field font-mono"
-                  />
+              </div>
+
+              {/* Drawdown */}
+              <div className="bg-[#1a1a1a] rounded p-4 space-y-3">
+                <div className="text-xs text-neutral-400 font-medium">Drawdown maximum autorisé</div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="field-label">Plancher absolu ($)</label>
+                    <input
+                      {...register('drawdown_floor', { valueAsNumber: true })}
+                      type="number" step="100"
+                      placeholder="ex: 9000"
+                      className="input-field font-mono"
+                    />
+                    <p className="text-xxs text-neutral-700 mt-1">
+                      Solde minimum — session bloquée si atteint
+                    </p>
+                  </div>
+                  <div className="flex flex-col justify-center">
+                    {(() => {
+                      const balance = watch('account_balance') || 0
+                      const floor   = watch('drawdown_floor')  || 0
+                      if (!balance || !floor) return <p className="text-xxs text-neutral-700">Entrez solde + plancher pour voir le DD max</p>
+                      const ddAmt = balance - floor
+                      const ddPct = ((ddAmt / balance) * 100).toFixed(1)
+                      return (
+                        <div className="text-center">
+                          <div className="text-2xl font-mono text-neutral-300">-{ddAmt.toLocaleString('fr-FR')} $</div>
+                          <div className="text-xs text-neutral-600 mt-1">= -{ddPct}% de drawdown max</div>
+                        </div>
+                      )
+                    })()}
+                  </div>
                 </div>
               </div>
 
               <div className="divider" />
-              <div className="section-title">Règles de risque</div>
+              <div className="section-title">Règles de risque par trade / jour</div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="field-label">Risque max / trade (%)</label>
-                  <input
-                    {...register('max_risk_per_trade', { valueAsNumber: true, required: true })}
-                    type="number" step="0.001" min="0.001" max="0.1"
-                    className="input-field font-mono"
-                  />
-                  <p className="text-xxs text-neutral-700 mt-1">
-                    Ex: 0.005 = 0.5%
+                  <label className="field-label">Risque max / trade</label>
+                  <div className="flex gap-2 items-center">
+                    <input
+                      {...register('max_risk_per_trade', { valueAsNumber: true, required: true })}
+                      type="number" step="0.001" min="0.001" max="0.1"
+                      className="input-field font-mono"
+                    />
+                  </div>
+                  <p className="text-xxs text-neutral-600 mt-1">
+                    {(() => {
+                      const pct = watch('max_risk_per_trade') || 0
+                      const bal = watch('account_balance') || 0
+                      if (!pct || !bal) return 'Ex: 0.005 = 0.5%'
+                      return `= ${(pct * 100).toFixed(2)}%  ·  ${(bal * pct).toFixed(0)} $ max par trade`
+                    })()}
                   </p>
                 </div>
                 <div>
-                  <label className="field-label">Risque max / jour (%)</label>
+                  <label className="field-label">Perte max / jour</label>
                   <input
                     {...register('max_risk_per_day', { valueAsNumber: true, required: true })}
                     type="number" step="0.001" min="0.001" max="0.2"
                     className="input-field font-mono"
                   />
+                  <p className="text-xxs text-neutral-600 mt-1">
+                    {(() => {
+                      const pct = watch('max_risk_per_day') || 0
+                      const bal = watch('account_balance') || 0
+                      if (!pct || !bal) return 'Ex: 0.01 = 1%'
+                      return `= ${(pct * 100).toFixed(2)}%  ·  ${(bal * pct).toFixed(0)} $ max par jour`
+                    })()}
+                  </p>
                 </div>
                 <div>
                   <label className="field-label">RR minimum</label>
