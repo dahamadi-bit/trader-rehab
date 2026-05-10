@@ -344,16 +344,44 @@ export default function SessionPage() {
         {/* Phase : trade actif */}
         {phase === 'active_trade' && session && (
           <ActiveTradePanel
-            onTradeClose={(result) => {
+            onTradeClose={async (result, pnlAmount) => {
               const isLoss = result === 'loss'
               const newConsecLosses = isLoss ? session.consecutiveLosses + 1 : 0
+              const newPnl = session.pnl + pnlAmount
 
+              // Mise à jour état local
               setSession(prev => prev ? {
                 ...prev,
                 consecutiveLosses: newConsecLosses,
+                pnl: newPnl,
                 cooldownActive: result === 'win',
                 cooldownEndsAt: result === 'win' ? new Date(Date.now() + 30 * 60000) : null,
               } : null)
+
+              // Mise à jour Supabase — session
+              const { createClient } = await import('@/lib/supabase')
+              const supabase = createClient()
+
+              await supabase.from('trading_sessions').update({
+                pnl_session: newPnl,
+                consecutive_losses: newConsecLosses,
+              }).eq('id', session.sessionId)
+
+              // Mise à jour du trade ouvert avec résultat + PnL
+              const { data: openTrades } = await supabase
+                .from('trades')
+                .select('id')
+                .eq('session_id', session.sessionId)
+                .eq('result', 'open')
+                .order('created_at', { ascending: false })
+                .limit(1)
+
+              if (openTrades && openTrades[0]) {
+                await supabase.from('trades').update({
+                  result,
+                  pnl: pnlAmount,
+                }).eq('id', openTrades[0].id)
+              }
 
               if (newConsecLosses >= 2) {
                 closeSession('max_losses')
@@ -635,9 +663,21 @@ function RevengeAlert({ result, onClose }: { result: RevengeDetectionResult; onC
 function ActiveTradePanel({
   onTradeClose,
 }: {
-  onTradeClose: (result: 'win' | 'loss' | 'breakeven') => void
+  onTradeClose: (result: 'win' | 'loss' | 'breakeven', pnl: number) => void
 }) {
   const [notes, setNotes] = useState('')
+  const [pnlInput, setPnlInput] = useState<string>('')
+  const [pendingResult, setPendingResult] = useState<'win' | 'loss' | 'breakeven' | null>(null)
+
+  function handleResultClick(result: 'win' | 'loss' | 'breakeven') {
+    setPendingResult(result)
+  }
+
+  function confirmClose() {
+    if (!pendingResult) return
+    const pnlValue = parseFloat(pnlInput) || 0
+    onTradeClose(pendingResult, pnlValue)
+  }
 
   return (
     <div className="card">
@@ -659,27 +699,58 @@ function ActiveTradePanel({
       </div>
 
       {/* Clôture avec friction */}
-      <div>
-        <div className="text-xxs text-neutral-600 mb-3 uppercase tracking-wider">Résultat du trade</div>
-        <div className="grid grid-cols-3 gap-3">
-          {[
-            { result: 'win'       as const, label: 'Gain' },
-            { result: 'loss'      as const, label: 'Perte' },
-            { result: 'breakeven' as const, label: 'Neutre' },
-          ].map(({ result, label }) => (
-            <button
-              key={result}
-              onClick={() => onTradeClose(result)}
-              className="btn-secondary text-sm py-3"
-            >
-              {label}
-            </button>
-          ))}
+      {!pendingResult ? (
+        <div>
+          <div className="text-xxs text-neutral-600 mb-3 uppercase tracking-wider">Résultat du trade</div>
+          <div className="grid grid-cols-3 gap-3">
+            {[
+              { result: 'win'       as const, label: 'Gain' },
+              { result: 'loss'      as const, label: 'Perte' },
+              { result: 'breakeven' as const, label: 'Neutre' },
+            ].map(({ result, label }) => (
+              <button
+                key={result}
+                onClick={() => handleResultClick(result)}
+                className="btn-secondary text-sm py-3"
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
-        <p className="text-xxs text-neutral-700 mt-3">
-          Après clôture, complétez l&rsquo;analyse comportementale dans le journal.
-        </p>
-      </div>
+      ) : (
+        <div className="space-y-4">
+          <div className="text-xs text-neutral-400">
+            Résultat sélectionné : <span className="font-medium text-neutral-200">{pendingResult === 'win' ? 'Gain' : pendingResult === 'loss' ? 'Perte' : 'Neutre'}</span>
+          </div>
+          <div>
+            <label className="field-label">PnL réalisé ($)</label>
+            <input
+              type="number"
+              step="0.01"
+              value={pnlInput}
+              onChange={e => setPnlInput(e.target.value)}
+              placeholder={pendingResult === 'loss' ? '-50.00' : '75.00'}
+              className="input-field font-mono"
+            />
+            <p className="text-xxs text-neutral-700 mt-1">
+              Entrez un montant négatif pour une perte (ex: -50)
+            </p>
+          </div>
+          <div className="flex gap-3">
+            <button onClick={confirmClose} className="btn-primary flex-1 text-sm">
+              Confirmer la clôture
+            </button>
+            <button onClick={() => setPendingResult(null)} className="btn-secondary flex-1 text-sm">
+              Revenir
+            </button>
+          </div>
+        </div>
+      )}
+
+      <p className="text-xxs text-neutral-700 mt-4">
+        Après clôture, complétez l&rsquo;analyse comportementale dans le journal.
+      </p>
     </div>
   )
 }
