@@ -22,7 +22,7 @@ import { clsx } from 'clsx'
 import Navigation from '@/components/shared/Navigation'
 import { analyzeRevengePatterns, getInterventionMessage } from '@/lib/revenge-detection'
 import { calculatePositionSize, canOpenTrade } from '@/lib/behavioral-engine'
-import { logBehavioralEvent } from '@/lib/supabase'
+import { logBehavioralEvent, refreshDisciplineScore } from '@/lib/supabase'
 import type { PlaybookSetup, ActiveSessionState, RevengeDetectionResult, TradingAccount } from '@/types'
 
 // ============================================================
@@ -202,6 +202,9 @@ export default function SessionPage() {
     if (timerRef.current) clearInterval(timerRef.current)
     setSession(null)
     setPhase('ended')
+
+    // Recalcul du score de discipline en arrière-plan
+    refreshDisciplineScore().catch(() => {})
   }
 
   // ————————————————————————————————————————

@@ -170,7 +170,12 @@ function CheckInForm({ onComplete, userId }: CheckInFormProps) {
       .select()
       .single()
 
-    if (data && !error) onComplete(data)
+    if (data && !error) {
+      onComplete(data)
+      // Mise à jour du score en arrière-plan
+      const { refreshDisciplineScore } = await import('@/lib/supabase')
+      refreshDisciplineScore().catch(() => {})
+    }
     setSaving(false)
   }
 

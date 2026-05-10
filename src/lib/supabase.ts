@@ -94,6 +94,73 @@ export async function getActiveSession() {
   return data
 }
 
+/**
+ * Recalcule et sauvegarde le score de discipline + métriques du profil.
+ * À appeler après : fermeture de session, soumission d'un trade, check-in.
+ */
+export async function refreshDisciplineScore(): Promise<number> {
+  const supabase = createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return 0
+
+  const thirtyDaysAgo = new Date()
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
+  const thirtyDaysAgoStr = thirtyDaysAgo.toISOString().split('T')[0]
+
+  const [{ data: trades }, { data: checkins }, { data: routines }, { data: events }] = await Promise.all([
+    supabase.from('trades').select('*').eq('user_id', user.id).gte('created_at', thirtyDaysAgo.toISOString()),
+    supabase.from('daily_checkins').select('checkin_date').eq('user_id', user.id).gte('checkin_date', thirtyDaysAgoStr),
+    supabase.from('routine_logs').select('*').eq('user_id', user.id).gte('log_date', thirtyDaysAgoStr),
+    supabase.from('behavioral_events').select('event_type, created_at').eq('user_id', user.id).gte('created_at', thirtyDaysAgo.toISOString()),
+  ])
+
+  // Violations
+  const revengeDetections  = events?.filter(e => e.event_type === 'revenge_detected').length ?? 0
+  const forcedCloses       = events?.filter(e => e.event_type === 'session_force_closed').length ?? 0
+  const planViolations     = trades?.filter(t => t.plan_respected === false).length ?? 0
+  const stopMovements      = trades?.filter(t => t.stop_moved === true).length ?? 0
+
+  const { calculateDisciplineScore } = await import('./discipline-score')
+  const breakdown = calculateDisciplineScore({
+    trades: trades ?? [],
+    journalDaysLast30:  checkins?.length ?? 0,
+    checkinDaysLast30:  checkins?.length ?? 0,
+    routineLogs: routines ?? [],
+    violations: {
+      revengeDetections,
+      forcedSessionCloses: forcedCloses,
+      planViolations,
+      stopMovements,
+    },
+  })
+
+  // Jours propres consécutifs (check-in fait, aucune violation ce jour-là)
+  const checkinDates = new Set(checkins?.map(c => c.checkin_date) ?? [])
+  const violationDates = new Set(
+    events?.filter(e => ['revenge_detected','session_force_closed','max_losses_reached'].includes(e.event_type))
+           .map(e => e.created_at.split('T')[0]) ?? []
+  )
+  let consecutiveClean = 0
+  for (let i = 0; i < 30; i++) {
+    const d = new Date(); d.setDate(d.getDate() - i)
+    const ds = d.toISOString().split('T')[0]
+    if (!checkinDates.has(ds) || violationDates.has(ds)) break
+    consecutiveClean++
+  }
+
+  // Jours de journal complétés (jours avec au moins 1 trade logged)
+  const journalDays = new Set(trades?.map(t => t.created_at.split('T')[0]) ?? []).size
+
+  await supabase.from('profiles').update({
+    discipline_score:        Math.max(0, Math.min(100, breakdown.total)),
+    consecutive_clean_days:  consecutiveClean,
+    journal_days_completed:  journalDays,
+    total_violations:        revengeDetections + forcedCloses + planViolations + stopMovements,
+  }).eq('id', user.id)
+
+  return breakdown.total
+}
+
 /** Log un événement comportemental */
 export async function logBehavioralEvent(
   eventType: import('@/types').BehavioralEventType,
