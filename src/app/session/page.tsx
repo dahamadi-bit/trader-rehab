@@ -48,7 +48,7 @@ type PreTradeFormData = z.infer<typeof PreTradeSchema>
 // ÉTATS DE LA SESSION
 // ============================================================
 
-type SessionPhase = 'loading' | 'blocked' | 'idle' | 'pre_trade' | 'active_trade' | 'cooldown' | 'ended'
+type SessionPhase = 'loading' | 'blocked' | 'account_selection' | 'idle' | 'pre_trade' | 'active_trade' | 'cooldown' | 'ended'
 
 // ============================================================
 // COMPOSANT PRINCIPAL
@@ -119,38 +119,49 @@ export default function SessionPage() {
 
       if (playbookData) setPlaybooks(playbookData)
 
-      // Session déjà active ?
-      const { data: activeSession } = await supabase
-        .from('trading_sessions')
-        .select('*')
-        .eq('user_id', user.id)
-        .eq('status', 'active')
-        .maybeSingle()
-
-      if (activeSession) {
-        // Reconstruire l'état
-        const state: ActiveSessionState = {
-          sessionId: activeSession.id,
-          startedAt: new Date(activeSession.started_at),
-          tradesCount: activeSession.trades_count,
-          consecutiveLosses: activeSession.consecutive_losses,
-          pnl: activeSession.pnl_session,
-          cooldownActive: false,
-          cooldownEndsAt: null,
-          canOpenTrade: true,
-          blockReason: null,
-        }
-        setSession(state)
-        setPhase('idle')
-        startTimer()
-      } else {
-        setPhase('idle')
-      }
+      // Toujours passer par la sélection de compte
+      setPhase('account_selection')
     }
     init()
 
     return () => { if (timerRef.current) clearInterval(timerRef.current) }
   }, [router, startTimer])
+
+  // Confirmer le compte et charger la session associée
+  async function confirmAccount(account: TradingAccount) {
+    setSelectedAccount(account)
+    const { createClient } = await import('@/lib/supabase')
+    const supabase = createClient()
+
+    // Chercher une session active pour CE compte spécifiquement
+    const query = supabase
+      .from('trading_sessions')
+      .select('*')
+      .eq('user_id', (await supabase.auth.getUser()).data.user?.id ?? '')
+      .eq('status', 'active')
+
+    // Filtrer par account_id si la session en a un
+    const { data: activeSession } = await query
+      .eq('account_id', account.id)
+      .maybeSingle()
+
+    if (activeSession) {
+      const state: ActiveSessionState = {
+        sessionId: activeSession.id,
+        startedAt: new Date(activeSession.started_at),
+        tradesCount: activeSession.trades_count,
+        consecutiveLosses: activeSession.consecutive_losses,
+        pnl: activeSession.pnl_session,
+        cooldownActive: false,
+        cooldownEndsAt: null,
+        canOpenTrade: true,
+        blockReason: null,
+      }
+      setSession(state)
+      startTimer()
+    }
+    setPhase('idle')
+  }
 
   // Démarrer une nouvelle session
   async function startSession() {
@@ -271,6 +282,74 @@ export default function SessionPage() {
                 Tableau de bord
               </button>
             </div>
+          </div>
+        )}
+
+        {/* Phase : sélection du compte */}
+        {phase === 'account_selection' && (
+          <div className="card">
+            <div className="section-title mb-4">Choisir le compte</div>
+
+            {accounts.length === 0 ? (
+              <div className="space-y-4">
+                <p className="text-xs text-neutral-500">Aucun compte configuré.</p>
+                <a href="/accounts" className="btn-secondary text-xs inline-block">
+                  Créer un compte →
+                </a>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {accounts.map(acc => {
+                  const isSelected = selectedAccount?.id === acc.id
+                  return (
+                    <button
+                      key={acc.id}
+                      onClick={() => setSelectedAccount(acc)}
+                      style={{
+                        width: '100%',
+                        textAlign: 'left',
+                        padding: '12px',
+                        borderRadius: '6px',
+                        border: isSelected ? '1px solid #e8e8e8' : '1px solid #2a2a2a',
+                        background: isSelected ? '#2a2a2a' : '#1a1a1a',
+                        cursor: 'pointer',
+                        transition: 'all 0.15s',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <div style={{
+                          width: '12px', height: '12px', borderRadius: '50%',
+                          border: isSelected ? '3px solid #e8e8e8' : '2px solid #4a4a4a',
+                          background: isSelected ? '#e8e8e8' : 'transparent',
+                          flexShrink: 0,
+                        }} />
+                        <div style={{ flex: 1 }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span style={{ fontSize: '14px', color: isSelected ? '#e8e8e8' : '#9b9b9b', fontWeight: isSelected ? 500 : 400 }}>
+                              {acc.name}
+                            </span>
+                            <span style={{ fontSize: '12px', color: isSelected ? '#e8e8e8' : '#4a4a4a', fontFamily: 'monospace' }}>
+                              {acc.account_balance.toLocaleString('fr-FR')} $
+                            </span>
+                          </div>
+                          <div style={{ fontSize: '11px', color: '#4a4a4a', marginTop: '2px' }}>
+                            {acc.broker ?? acc.account_type} · Risque {(acc.max_risk_per_trade * 100).toFixed(1)}%/trade · Max {acc.max_trades_per_session} trades
+                          </div>
+                        </div>
+                      </div>
+                    </button>
+                  )
+                })}
+                <button
+                  onClick={() => selectedAccount && confirmAccount(selectedAccount)}
+                  disabled={!selectedAccount}
+                  className="btn-primary w-full mt-2"
+                  style={{ marginTop: '12px' }}
+                >
+                  Continuer avec {selectedAccount?.name ?? '…'} →
+                </button>
+              </div>
+            )}
           </div>
         )}
 
@@ -699,144 +778,4 @@ function PreTradeForm({ playbooks, onRevengeDetected, onSubmit, onCancel }: Omit
               Confirmez : ce trade est dans votre playbook, le risque est défini, et vous êtes dans un état calme.
             </p>
             <div className="flex gap-3">
-              <button type="submit" disabled={isSubmitting} className="btn-primary flex-1">
-                {isSubmitting ? 'Enregistrement…' : 'Confirmer et entrer'}
-              </button>
-              <button type="button" onClick={() => setConfirmVisible(false)} className="btn-secondary flex-1">
-                Revérifier
-              </button>
-            </div>
-          </div>
-        )}
-
-        <button type="button" onClick={onCancel} className="btn-secondary w-full text-xs">
-          Annuler — pas de trade
-        </button>
-      </form>
-    </div>
-  )
-}
-
-// ============================================================
-// ALERTE REVENGE TRADING
-// ============================================================
-
-function RevengeAlert({ result, onClose }: { result: RevengeDetectionResult; onClose: () => void }) {
-  const msg = getInterventionMessage(result)
-  return (
-    <div className="card border border-[#e74c3c]/40 bg-[#e74c3c]/5 shadow-glow-danger animate-fade-in">
-      <div className="text-sm font-medium text-[#e74c3c] mb-2">{msg.title}</div>
-      <p className="text-sm text-neutral-400 leading-relaxed mb-4">{msg.body}</p>
-      {result.flags.length > 0 && (
-        <div className="mb-4">
-          <div className="text-xxs text-neutral-600 mb-1">Éléments détectés :</div>
-          {result.flags.map(f => (
-            <div key={f} className="text-xs text-neutral-500">— {f}</div>
-          ))}
-        </div>
-      )}
-      <button onClick={onClose} className="btn-secondary text-xs">
-        Compris — fermer
-      </button>
-    </div>
-  )
-}
-
-// ============================================================
-// PANEL TRADE ACTIF
-// ============================================================
-
-function ActiveTradePanel({
-  onTradeClose,
-}: {
-  onTradeClose: (result: 'win' | 'loss' | 'breakeven', pnl: number) => void
-}) {
-  const [notes, setNotes] = useState('')
-  const [pnlInput, setPnlInput] = useState<string>('')
-  const [pendingResult, setPendingResult] = useState<'win' | 'loss' | 'breakeven' | null>(null)
-
-  function handleResultClick(result: 'win' | 'loss' | 'breakeven') {
-    setPendingResult(result)
-  }
-
-  function confirmClose() {
-    if (!pendingResult) return
-    const pnlValue = parseFloat(pnlInput) || 0
-    onTradeClose(pendingResult, pnlValue)
-  }
-
-  return (
-    <div className="card">
-      <div className="section-title mb-4">Trade en cours</div>
-      <p className="text-xs text-neutral-500 mb-5 leading-relaxed">
-        Respectez votre plan. Ne déplacez pas votre stop. Le marché fait ce qu&rsquo;il fait.
-      </p>
-
-      {/* Notes pendant */}
-      <div className="mb-5">
-        <label className="field-label">Observations pendant le trade (optionnel)</label>
-        <textarea
-          value={notes}
-          onChange={e => setNotes(e.target.value)}
-          rows={2}
-          placeholder="Émotions, tentation de modifier le stop…"
-          className="textarea-field"
-        />
-      </div>
-
-      {/* Clôture avec friction */}
-      {!pendingResult ? (
-        <div>
-          <div className="text-xxs text-neutral-600 mb-3 uppercase tracking-wider">Résultat du trade</div>
-          <div className="grid grid-cols-3 gap-3">
-            {[
-              { result: 'win'       as const, label: 'Gain' },
-              { result: 'loss'      as const, label: 'Perte' },
-              { result: 'breakeven' as const, label: 'Neutre' },
-            ].map(({ result, label }) => (
-              <button
-                key={result}
-                onClick={() => handleResultClick(result)}
-                className="btn-secondary text-sm py-3"
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-        </div>
-      ) : (
-        <div className="space-y-4">
-          <div className="text-xs text-neutral-400">
-            Résultat sélectionné : <span className="font-medium text-neutral-200">{pendingResult === 'win' ? 'Gain' : pendingResult === 'loss' ? 'Perte' : 'Neutre'}</span>
-          </div>
-          <div>
-            <label className="field-label">PnL réalisé ($)</label>
-            <input
-              type="number"
-              step="0.01"
-              value={pnlInput}
-              onChange={e => setPnlInput(e.target.value)}
-              placeholder={pendingResult === 'loss' ? '-50.00' : '75.00'}
-              className="input-field font-mono"
-            />
-            <p className="text-xxs text-neutral-700 mt-1">
-              Entrez un montant négatif pour une perte (ex: -50)
-            </p>
-          </div>
-          <div className="flex gap-3">
-            <button onClick={confirmClose} className="btn-primary flex-1 text-sm">
-              Confirmer la clôture
-            </button>
-            <button onClick={() => setPendingResult(null)} className="btn-secondary flex-1 text-sm">
-              Revenir
-            </button>
-          </div>
-        </div>
-      )}
-
-      <p className="text-xxs text-neutral-700 mt-4">
-        Après clôture, complétez l&rsquo;analyse comportementale dans le journal.
-      </p>
-    </div>
-  )
-}
+              <button type="submit" disabled={isSubmitt

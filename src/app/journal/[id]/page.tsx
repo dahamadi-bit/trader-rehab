@@ -70,7 +70,39 @@ export default function TradeDetailPage() {
     if (!trade) return
     const { createClient } = await import('@/lib/supabase')
     const supabase = createClient()
+
+    const sessionId = trade.session_id
+
+    // Supprimer le trade
     await supabase.from('trades').delete().eq('id', trade.id)
+
+    // Recalculer les métriques de la session si ce trade y était rattaché
+    if (sessionId) {
+      const { data: remaining } = await supabase
+        .from('trades')
+        .select('result, pnl')
+        .eq('session_id', sessionId)
+
+      if (remaining) {
+        const closedTrades = remaining.filter(t => t.result && t.result !== 'open')
+        const tradesCount = closedTrades.length
+        const pnlSession = closedTrades.reduce((sum, t) => sum + (t.pnl ?? 0), 0)
+
+        // Recalculer pertes consécutives (depuis la fin)
+        let consecutiveLosses = 0
+        for (let i = closedTrades.length - 1; i >= 0; i--) {
+          if (closedTrades[i].result === 'loss') consecutiveLosses++
+          else break
+        }
+
+        await supabase.from('trading_sessions').update({
+          trades_count: tradesCount,
+          pnl_session: pnlSession,
+          consecutive_losses: consecutiveLosses,
+        }).eq('id', sessionId)
+      }
+    }
+
     router.push('/journal')
   }
 
@@ -304,33 +336,4 @@ function TradeForm({ trade, register, handleSubmit, onSubmit, onCancel }: {
         <div className="divider" />
         <div className="section-title">APRÈS</div>
 
-        <div className="grid grid-cols-3 gap-4">
-          <div><label className="field-label">Résultat</label>
-            <select {...register('result')} defaultValue={trade?.result ?? ''} className="input-field">
-              <option value="">—</option><option value="win">Gain</option>
-              <option value="loss">Perte</option><option value="breakeven">Neutre</option>
-            </select></div>
-          <div><label className="field-label">PnL ($)</label>
-            <input {...register('pnl', { valueAsNumber: true })} type="number" step="0.01" className="input-field font-mono" /></div>
-          <div><label className="field-label">Qualité exec (1-10)</label>
-            <input {...register('execution_quality', { valueAsNumber: true })} type="number" min={1} max={10} className="input-field font-mono" /></div>
-        </div>
-
-        <div><label className="field-label">Erreur principale</label>
-          <select {...register('main_error')} defaultValue={trade?.main_error ?? ''} className="input-field">
-            <option value="none">Aucune</option><option value="impulse">Impulsivité</option>
-            <option value="revenge">Revenge trading</option><option value="overconfidence">Surconfiance</option>
-            <option value="fear">Peur</option><option value="fomo">FOMO</option>
-          </select></div>
-
-        <div><label className="field-label">Notes comportementales</label>
-          <textarea {...register('behavioral_notes')} rows={2} className="textarea-field" /></div>
-
-        <div className="flex gap-3">
-          <button type="submit" className="btn-primary flex-1">Enregistrer</button>
-          <button type="button" onClick={onCancel} className="btn-secondary flex-1">Annuler</button>
-        </div>
-      </form>
-    </div>
-  )
-}
+        <div cla
