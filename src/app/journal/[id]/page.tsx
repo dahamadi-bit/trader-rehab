@@ -5,15 +5,16 @@
  * Formulaire AVANT / PENDANT / APRÈS + analyse IA
  */
 
-import { useState, useEffect, use } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState, useEffect } from 'react'
+import { useRouter, useParams } from 'next/navigation'
 import { useForm } from 'react-hook-form'
 import { clsx } from 'clsx'
 import Navigation from '@/components/shared/Navigation'
 import type { Trade } from '@/types'
 
-export default function TradeDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = use(params)
+export default function TradeDetailPage() {
+  const params = useParams()
+  const id = params.id as string
   const router = useRouter()
   const [trade, setTrade] = useState<Trade | null>(null)
   const [isLoading, setIsLoading] = useState(true)
