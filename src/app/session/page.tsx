@@ -23,7 +23,7 @@ import Navigation from '@/components/shared/Navigation'
 import { analyzeRevengePatterns, getInterventionMessage } from '@/lib/revenge-detection'
 import { calculatePositionSize, canOpenTrade } from '@/lib/behavioral-engine'
 import { logBehavioralEvent } from '@/lib/supabase'
-import type { PlaybookSetup, ActiveSessionState, RevengeDetectionResult } from '@/types'
+import type { PlaybookSetup, ActiveSessionState, RevengeDetectionResult, TradingAccount } from '@/types'
 
 // ============================================================
 // SCHÉMA VALIDATION — Formulaire pré-trade
@@ -63,6 +63,8 @@ export default function SessionPage() {
   const [revengeAlert, setRevengeAlert] = useState<RevengeDetectionResult | null>(null)
   const [sessionMinutes, setSessionMinutes] = useState(0)
   const [cooldownRemaining, setCooldownRemaining] = useState(0)
+  const [accounts, setAccounts] = useState<TradingAccount[]>([])
+  const [selectedAccount, setSelectedAccount] = useState<TradingAccount | null>(null)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const startTimer = useCallback(() => {
@@ -79,11 +81,18 @@ export default function SessionPage() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) { router.push('/'); return }
 
-      const [checkin, { data: profileData }, { data: playbookData }] = await Promise.all([
+      const [checkin, { data: profileData }, { data: playbookData }, { data: accountsData }] = await Promise.all([
         getTodayCheckIn(),
         supabase.from('profiles').select('*').eq('id', user.id).single(),
         supabase.from('playbook_setups').select('*').eq('user_id', user.id).eq('is_active', true),
+        supabase.from('accounts').select('*').eq('user_id', user.id).eq('is_active', true).order('created_at'),
       ])
+
+      if (accountsData && accountsData.length > 0) {
+        setAccounts(accountsData)
+        const defaultAcc = accountsData.find((a: TradingAccount) => a.is_default) ?? accountsData[0]
+        setSelectedAccount(defaultAcc)
+      }
 
       // Vérification suspension
       if (profileData?.relapse_mode === 'suspended_24h' || profileData?.relapse_mode === 'suspended_7d') {
@@ -150,9 +159,14 @@ export default function SessionPage() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
 
+    const sessionType = selectedAccount?.account_type ?? 'simulation'
     const { data: newSession } = await supabase
       .from('trading_sessions')
-      .insert({ user_id: user.id, session_type: 'prop_firm' })
+      .insert({
+        user_id: user.id,
+        session_type: sessionType,
+        ...(selectedAccount ? { account_id: selectedAccount.id } : {}),
+      })
       .select()
       .single()
 
@@ -261,13 +275,61 @@ export default function SessionPage() {
         {phase === 'idle' && !session && (
           <div className="card">
             <div className="section-title mb-3">Démarrer une session</div>
-            <div className="space-y-2 text-xs text-neutral-500 mb-5">
-              <p>— Maximum {2} trades par session</p>
-              <p>— Arrêt automatique après 2 pertes consécutives</p>
-              <p>— Cooldown 30 min obligatoire après chaque gain</p>
-              <p>— Tous les champs de justification sont obligatoires</p>
-            </div>
-            <button onClick={startSession} className="btn-primary">
+
+            {/* Sélecteur de compte */}
+            {accounts.length > 0 ? (
+              <div className="mb-5">
+                <label className="field-label">Compte actif</label>
+                <div className="space-y-2">
+                  {accounts.map(acc => (
+                    <button
+                      key={acc.id}
+                      onClick={() => setSelectedAccount(acc)}
+                      className={clsx(
+                        'w-full text-left p-3 rounded border transition-colors',
+                        selectedAccount?.id === acc.id
+                          ? 'border-neutral-500 bg-[#1a1a1a]'
+                          : 'border-[#2a2a2a] hover:border-neutral-600'
+                      )}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <span className="text-sm text-neutral-300">{acc.name}</span>
+                          {acc.broker && <span className="text-xs text-neutral-600 ml-2">{acc.broker}</span>}
+                        </div>
+                        <div className="text-xs text-neutral-600 font-mono">
+                          {acc.account_balance.toLocaleString('fr-FR')} $
+                        </div>
+                      </div>
+                      <div className="text-xxs text-neutral-700 mt-1">
+                        Risque {(acc.max_risk_per_trade * 100).toFixed(1)}% · Max {acc.max_trades_per_session} trades · {acc.max_consecutive_losses} pertes max
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="mb-5 p-3 bg-[#1a1a1a] rounded text-xs text-neutral-500">
+                Aucun compte configuré.{' '}
+                <a href="/accounts" className="text-neutral-400 underline">Créer un compte →</a>
+              </div>
+            )}
+
+            {/* Règles du compte sélectionné */}
+            {selectedAccount && (
+              <div className="space-y-1 text-xs text-neutral-600 mb-5">
+                <p>— Maximum {selectedAccount.max_trades_per_session} trades par session</p>
+                <p>— Arrêt automatique après {selectedAccount.max_consecutive_losses} pertes consécutives</p>
+                <p>— Cooldown 30 min obligatoire après chaque gain</p>
+                <p>— Tous les champs de justification sont obligatoires</p>
+              </div>
+            )}
+
+            <button
+              onClick={startSession}
+              disabled={accounts.length > 0 && !selectedAccount}
+              className="btn-primary w-full"
+            >
               Démarrer session
             </button>
           </div>
@@ -279,14 +341,14 @@ export default function SessionPage() {
             <SessionStatus session={session} />
             <button
               onClick={() => {
-                const check = canOpenTrade(session)
+                const check = canOpenTrade(session, selectedAccount ?? undefined)
                 if (check.allowed) {
                   setPhase('pre_trade')
                 } else {
                   setBlockMessage(check.reason ?? '')
                 }
               }}
-              disabled={!canOpenTrade(session).allowed}
+              disabled={!canOpenTrade(session, selectedAccount ?? undefined).allowed}
               className="btn-primary w-full"
             >
               Ouvrir un trade

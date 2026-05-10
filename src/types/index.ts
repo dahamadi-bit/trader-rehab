@@ -54,6 +54,29 @@ export interface Profile {
   days_without_discomfort: number
 }
 
+export type AccountType = 'prop_firm' | 'personal' | 'simulation'
+
+export interface TradingAccount {
+  id: string
+  user_id: string
+  created_at: string
+  updated_at: string
+  name: string                        // "FTMO 100K", "Oanda Personnel"
+  broker: string | null               // "FTMO", "Oanda", "Darwinex"…
+  account_type: AccountType
+  account_balance: number
+  starting_balance: number
+  drawdown_floor: number | null       // Plancher absolu (prop firm)
+  max_risk_per_trade: number          // % ex: 0.005
+  max_risk_per_day: number            // % ex: 0.01
+  min_rr_ratio: number
+  max_trades_per_session: number
+  max_consecutive_losses: number
+  is_active: boolean
+  is_default: boolean
+  notes: string | null
+}
+
 export interface DailyCheckIn {
   id: string
   user_id: string

@@ -18,6 +18,7 @@ import type {
   Profile,
   RelapseMode,
   CloseReason,
+  TradingAccount,
 } from '@/types'
 
 // ============================================================
@@ -105,23 +106,26 @@ export function evaluateEmotionalState(checkin: DailyCheckIn): EmotionalAssessme
  * Vérifie si un trade supplémentaire peut être ouvert
  * dans la session en cours.
  */
-export function canOpenTrade(session: ActiveSessionState): {
+export function canOpenTrade(session: ActiveSessionState, account?: TradingAccount): {
   allowed: boolean
   reason: string | null
 } {
+  const maxTrades = account?.max_trades_per_session ?? THRESHOLDS.MAX_TRADES_PER_SESSION
+  const maxLosses = account?.max_consecutive_losses ?? THRESHOLDS.MAX_CONSECUTIVE_LOSSES
+
   // Maximum de trades atteint
-  if (session.tradesCount >= THRESHOLDS.MAX_TRADES_PER_SESSION) {
+  if (session.tradesCount >= maxTrades) {
     return {
       allowed: false,
-      reason: `Maximum ${THRESHOLDS.MAX_TRADES_PER_SESSION} trades par session atteint. La session est terminée.`,
+      reason: `Maximum ${maxTrades} trades par session atteint. La session est terminée.`,
     }
   }
 
   // Maximum de pertes consécutives
-  if (session.consecutiveLosses >= THRESHOLDS.MAX_CONSECUTIVE_LOSSES) {
+  if (session.consecutiveLosses >= maxLosses) {
     return {
       allowed: false,
-      reason: `${THRESHOLDS.MAX_CONSECUTIVE_LOSSES} pertes consécutives. Arrêt automatique de la session.`,
+      reason: `${maxLosses} pertes consécutives. Arrêt automatique de la session.`,
     }
   }
 

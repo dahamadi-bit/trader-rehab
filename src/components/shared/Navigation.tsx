@@ -26,6 +26,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: '/playbook',        label: 'Playbook',           icon: '□', description: 'Setups autorisés' },
   { href: '/weekly',          label: 'Bilan hebdo',        icon: '◑', description: 'Revue de semaine' },
   { href: '/anti-addiction',  label: 'Discipline',         icon: '◉', description: 'Module thérapeutique' },
+  { href: '/accounts',        label: 'Comptes',            icon: '▣', description: 'Prop firm · Personnel' },
 ]
 
 interface NavigationProps {
