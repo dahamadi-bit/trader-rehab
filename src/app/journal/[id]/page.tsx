@@ -18,7 +18,7 @@ export default function TradeDetailPage() {
   const router = useRouter()
   const [trade, setTrade] = useState<Trade | null>(null)
   const [isLoading, setIsLoading] = useState(true)
-  const [aiLoading, setAiLoading] = useState(false)
+  const [copied, setCopied] = useState(false)
   const [editMode, setEditMode] = useState(false)
   const [isNew, setIsNew] = useState(id === 'new')
 
@@ -65,26 +65,36 @@ export default function TradeDetailPage() {
     }
   }
 
-  async function requestAIAnalysis() {
+  function copyTradeForAnalysis() {
     if (!trade) return
-    setAiLoading(true)
-    const res = await fetch('/api/ai-analysis', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ trade }),
-    })
-    const { analysis } = await res.json()
+    const text = `ANALYSE DE TRADE — ${trade.symbol} ${trade.direction ?? ''} — ${new Date(trade.created_at).toLocaleDateString('fr-FR')}
 
-    // Sauvegarder l'analyse
-    const { createClient } = await import('@/lib/supabase')
-    const supabase = createClient()
-    await supabase.from('trades').update({
-      ai_analysis: analysis,
-      ai_analyzed_at: new Date().toISOString(),
-    }).eq('id', trade.id)
+PLAN
+  Setup : ${trade.setup_name ?? 'N/R'}
+  Contexte : ${trade.market_context ?? 'N/R'}
+  Justification : ${trade.plan_justification ?? 'N/R'}
+  Entrée : ${trade.entry_price ?? 'N/R'} | SL : ${trade.stop_loss ?? 'N/R'} | TP : ${trade.take_profit_1 ?? 'N/R'}
+  Risque : ${trade.risk_amount ?? 'N/R'} $ | RR : ${trade.rr_ratio ?? 'N/R'}
+  Émotion avant : ${trade.emotion_before ?? 'N/R'} | Confiance : ${trade.confidence_level ?? 'N/R'}/10
 
-    setTrade(prev => prev ? { ...prev, ai_analysis: analysis } : null)
-    setAiLoading(false)
+PENDANT
+  Plan respecté : ${trade.plan_respected === true ? 'Oui' : trade.plan_respected === false ? 'Non' : 'N/R'}
+  Stop déplacé : ${trade.stop_moved ? 'Oui — ' + (trade.stop_moved_reason ?? '') : 'Non'}
+  Notes : ${trade.temptation_notes ?? 'Aucune'}
+
+RÉSULTAT
+  Résultat : ${trade.result ?? 'N/R'} | PnL : ${trade.pnl !== null ? (trade.pnl >= 0 ? '+' : '') + trade.pnl.toFixed(2) + ' $' : 'N/R'}
+  Erreur principale : ${trade.main_error ?? 'aucune'}
+  Qualité exécution : ${trade.execution_quality ?? 'N/R'}/10
+  Notes comportementales : ${trade.behavioral_notes ?? 'Aucune'}
+  Flags revenge : ${(trade.revenge_flags?.length ?? 0) > 0 ? trade.revenge_flags?.join(', ') : 'aucun'}
+
+---
+Analyse ce trade comportementalement. Identifie le pattern principal, ce qui a bien fonctionné dans l'exécution, et donne une recommandation concrète pour le prochain trade similaire. Sois factuel et non culpabilisant.`
+
+    navigator.clipboard.writeText(text)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2500)
   }
 
   if (isLoading) {
@@ -106,7 +116,15 @@ export default function TradeDetailPage() {
             </h1>
           </div>
           {!isNew && !editMode && (
+            <div className="flex gap-2">
+            <button
+              onClick={copyTradeForAnalysis}
+              className="btn-secondary text-xs"
+            >
+              {copied ? '✓ Copié' : 'Copier pour Claude'}
+            </button>
             <button onClick={() => setEditMode(true)} className="btn-secondary text-xs">Modifier</button>
+          </div>
           )}
         </div>
 
@@ -119,7 +137,7 @@ export default function TradeDetailPage() {
             onCancel={() => { setEditMode(false); if (isNew) router.push('/journal') }}
           />
         ) : trade ? (
-          <TradeView trade={trade} onRequestAI={requestAIAnalysis} aiLoading={aiLoading} />
+          <TradeView trade={trade} />
         ) : null}
       </main>
     </div>
@@ -127,7 +145,7 @@ export default function TradeDetailPage() {
 }
 
 // ——— Vue lecture ———
-function TradeView({ trade, onRequestAI, aiLoading }: { trade: Trade; onRequestAI: () => void; aiLoading: boolean }) {
+function TradeView({ trade }: { trade: Trade }) {
   const sections = [
     {
       title: 'AVANT — Plan',
@@ -194,22 +212,15 @@ function TradeView({ trade, onRequestAI, aiLoading }: { trade: Trade; onRequestA
         </div>
       ))}
 
-      {/* Analyse IA */}
-      <div className="card">
-        <div className="section-title mb-3">Analyse comportementale IA</div>
-        {trade.ai_analysis ? (
+      {/* Analyse sauvegardée si existante */}
+      {trade.ai_analysis && (
+        <div className="card">
+          <div className="section-title mb-3">Notes d'analyse</div>
           <pre className="text-xs text-neutral-500 leading-relaxed whitespace-pre-wrap font-sans">
             {trade.ai_analysis}
           </pre>
-        ) : (
-          <div>
-            <p className="text-xs text-neutral-600 mb-3">Analyse non générée.</p>
-            <button onClick={onRequestAI} disabled={aiLoading} className="btn-secondary text-xs">
-              {aiLoading ? 'Analyse en cours…' : 'Générer l\'analyse IA'}
-            </button>
-          </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   )
 }

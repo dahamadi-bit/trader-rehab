@@ -34,9 +34,10 @@ export default function WeeklyPage() {
   const [report, setReport] = useState<{
     disciplineScore: number
     emotionalScore: number
-    aiReport: string
+    exportText: string
     recommendations: string[]
   } | null>(null)
+  const [copied, setCopied] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [selectedReview, setSelectedReview] = useState<WeeklyReview | null>(null)
 
@@ -170,12 +171,24 @@ export default function WeeklyPage() {
               </div>
             )}
 
-            {report.aiReport && (
+            {report.exportText && (
               <div className="pt-4 border-t border-[#1a1a1a]">
-                <div className="text-xs text-neutral-500 font-medium mb-2">Analyse comportementale</div>
-                <pre className="text-xs text-neutral-600 leading-relaxed whitespace-pre-wrap font-sans">
-                  {report.aiReport}
-                </pre>
+                <div className="flex items-center justify-between mb-3">
+                  <div className="text-xs text-neutral-500 font-medium">Analyse comportementale</div>
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(report.exportText)
+                      setCopied(true)
+                      setTimeout(() => setCopied(false), 2500)
+                    }}
+                    className="btn-secondary text-xs py-1.5 px-3"
+                  >
+                    {copied ? '✓ Copié' : 'Copier pour Claude →'}
+                  </button>
+                </div>
+                <p className="text-xs text-neutral-600 leading-relaxed">
+                  Colle ce résumé dans Claude pour obtenir une analyse comportementale personnalisée.
+                </p>
               </div>
             )}
           </div>
