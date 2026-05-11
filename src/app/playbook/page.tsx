@@ -27,6 +27,7 @@ export default function PlaybookPage() {
   const [showForm, setShowForm] = useState(false)
   const [selected, setSelected] = useState<PlaybookSetup | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [editingSetup, setEditingSetup] = useState<PlaybookSetup | null>(null)
 
   const { register, handleSubmit, reset, formState: { isSubmitting } } = useForm<SetupFormData>()
 
@@ -55,17 +56,57 @@ export default function PlaybookPage() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
 
-    const { data: newSetup } = await supabase
+    if (editingSetup) {
+      // Mise à jour
+      const { data: updated } = await supabase
+        .from('playbook_setups')
+        .update({ ...data, updated_at: new Date().toISOString() })
+        .eq('id', editingSetup.id)
+        .select()
+        .single()
+      if (updated) {
+        setSetups(prev => prev.map(s => s.id === updated.id ? updated : s))
+        setSelected(updated)
+      }
+    } else {
+      // Création
+      const { data: newSetup } = await supabase
+        .from('playbook_setups')
+        .insert({ user_id: user.id, ...data })
+        .select()
+        .single()
+      if (newSetup) setSetups(prev => [newSetup, ...prev])
+    }
+
+    reset()
+    setShowForm(false)
+    setEditingSetup(null)
+  }
+
+  function startEdit(setup: PlaybookSetup) {
+    setEditingSetup(setup)
+    reset({
+      name: setup.name,
+      pattern_type: setup.pattern_type,
+      description: setup.description ?? '',
+      entry_conditions: setup.entry_conditions,
+      invalidation: setup.invalidation,
+      target_description: setup.target_description ?? '',
+    })
+    setShowForm(true)
+    setSelected(null)
+  }
+
+  async function toggleActive(setup: PlaybookSetup) {
+    const { createClient } = await import('@/lib/supabase')
+    const supabase = createClient()
+    const { data: updated } = await supabase
       .from('playbook_setups')
-      .insert({ user_id: user.id, ...data })
+      .update({ is_active: !setup.is_active })
+      .eq('id', setup.id)
       .select()
       .single()
-
-    if (newSetup) {
-      setSetups(prev => [newSetup, ...prev])
-      reset()
-      setShowForm(false)
-    }
+    if (updated) setSetups(prev => prev.map(s => s.id === updated.id ? updated : s))
   }
 
   if (isLoading) {
@@ -82,7 +123,7 @@ export default function PlaybookPage() {
             <h1 className="text-base font-medium text-neutral-200">Playbook</h1>
             <p className="text-xs text-neutral-600 mt-0.5">Seuls les setups documentés ici sont autorisés en session.</p>
           </div>
-          <button onClick={() => setShowForm(!showForm)} className="btn-secondary text-xs">
+          <button onClick={() => { setShowForm(!showForm); setEditingSetup(null); reset() }} className="btn-secondary text-xs">
             {showForm ? 'Fermer' : '+ Nouveau setup'}
           </button>
         </div>
@@ -100,7 +141,7 @@ export default function PlaybookPage() {
         {/* Formulaire nouveau setup */}
         {showForm && (
           <div className="card animate-slide-up">
-            <div className="section-title mb-5">Documenter un setup</div>
+            <div className="section-title mb-5">{editingSetup ? `Modifier : ${editingSetup.name}` : 'Documenter un setup'}</div>
             <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
@@ -154,9 +195,9 @@ export default function PlaybookPage() {
 
               <div className="flex gap-3">
                 <button type="submit" disabled={isSubmitting} className="btn-primary flex-1">
-                  {isSubmitting ? 'Enregistrement…' : 'Enregistrer le setup'}
+                  {isSubmitting ? 'Enregistrement…' : editingSetup ? 'Mettre à jour' : 'Enregistrer le setup'}
                 </button>
-                <button type="button" onClick={() => { setShowForm(false); reset() }} className="btn-secondary flex-1">
+                <button type="button" onClick={() => { setShowForm(false); setEditingSetup(null); reset() }} className="btn-secondary flex-1">
                   Annuler
                 </button>
               </div>
@@ -215,6 +256,25 @@ export default function PlaybookPage() {
                       <p className="text-xs text-neutral-500 leading-relaxed">{setup.target_description}</p>
                     </div>
                   )}
+
+                  <div className="flex gap-2 pt-2" onClick={e => e.stopPropagation()}>
+                    <button
+                      onClick={() => startEdit(setup)}
+                      className="btn-secondary text-xs flex-1"
+                    >
+                      Modifier
+                    </button>
+                    <button
+                      onClick={() => toggleActive(setup)}
+                      className={clsx('text-xs px-3 py-1.5 rounded text-xxs uppercase tracking-wider',
+                        setup.is_active
+                          ? 'bg-neutral-800 text-neutral-500 hover:bg-[#e74c3c]/10 hover:text-[#e74c3c]'
+                          : 'bg-neutral-800 text-neutral-600 hover:bg-neutral-700'
+                      )}
+                    >
+                      {setup.is_active ? 'Désactiver' : 'Réactiver'}
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
