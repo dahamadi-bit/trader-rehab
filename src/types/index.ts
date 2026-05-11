@@ -122,6 +122,7 @@ export interface Trade {
   id: string
   user_id: string
   session_id: string | null
+  account_id: string | null
   playbook_setup_id: string | null
   created_at: string
   updated_at: string

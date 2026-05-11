@@ -102,8 +102,11 @@ export default function DashboardPage() {
             .select('pnl, result')
             .eq('user_id', user.id)
             .eq('account_id', fallback.id)
-            .neq('result', 'open')
-          const total = recentTrades?.reduce((s: number, t: { pnl: number | null }) => s + (t.pnl ?? 0), 0) ?? 0
+          // Exclure 'open' et NULL en JS (SQL NULL != 'open' = NULL = exclu par .neq)
+          const closedTrades = recentTrades?.filter((t: { pnl: number | null; result: string | null }) =>
+            t.result && t.result !== 'open'
+          ) ?? []
+          const total = closedTrades.reduce((s: number, t: { pnl: number | null }) => s + (t.pnl ?? 0), 0)
           setGlobalPnl(total)
           // Pertes consécutives depuis la dernière session fermée
           const { data: lastSession } = await supabase
@@ -122,6 +125,11 @@ export default function DashboardPage() {
       setIsLoading(false)
     }
     loadData()
+
+    // Rafraîchir quand l'utilisateur revient sur l'onglet (ex: après ajout trade)
+    const onVisible = () => { if (document.visibilityState === 'visible') loadData() }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
   }, [router])
 
   if (isLoading) {

@@ -234,9 +234,12 @@ function TradeRow({ trade }: { trade: Trade }) {
               </span>
             )}
 
-            {/* Badges violations */}
-            {hasViolation && (
-              <span className="badge bg-[#e67e22]/10 text-[#e67e22]">violation</span>
+            {/* Badges violations — détaillés */}
+            {trade.plan_respected === false && (
+              <span className="badge bg-[#e67e22]/10 text-[#e67e22]">plan violé</span>
+            )}
+            {trade.stop_moved && (
+              <span className="badge bg-[#e67e22]/10 text-[#e67e22]">stop déplacé</span>
             )}
             {(trade.revenge_flags?.length ?? 0) > 0 && (
               <span className="badge bg-[#e74c3c]/10 text-[#e74c3c]">revenge</span>
