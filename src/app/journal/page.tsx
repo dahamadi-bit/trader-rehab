@@ -20,7 +20,7 @@ import {
 import { clsx } from 'clsx'
 import Navigation from '@/components/shared/Navigation'
 import { calculateDisciplineScore, interpretDisciplineScore } from '@/lib/discipline-score'
-import type { Trade } from '@/types'
+import type { Trade, TradingAccount } from '@/types'
 
 // ============================================================
 // COMPOSANT PRINCIPAL
@@ -30,8 +30,9 @@ export default function JournalPage() {
   const router = useRouter()
   const [trades, setTrades] = useState<Trade[]>([])
   const [isLoading, setIsLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState<'list' | 'analytics'>('list')
+  const [activeTab, setActiveTab] = useState<'list' | 'analytics' | 'export'>('list')
   const [filter, setFilter] = useState<'all' | 'win' | 'loss' | 'violation'>('all')
+  const [accounts, setAccounts] = useState<TradingAccount[]>([])
 
   useEffect(() => {
     async function load() {
@@ -40,14 +41,23 @@ export default function JournalPage() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) { router.push('/'); return }
 
-      const { data } = await supabase
-        .from('trades')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(100)
+      const [tradesRes, accountsRes] = await Promise.all([
+        supabase
+          .from('trades')
+          .select('*')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false })
+          .limit(100),
+        supabase
+          .from('accounts')
+          .select('*')
+          .eq('user_id', user.id)
+          .eq('is_active', true)
+          .order('created_at'),
+      ])
 
-      setTrades(data ?? [])
+      setTrades(tradesRes.data ?? [])
+      setAccounts(accountsRes.data ?? [])
       setIsLoading(false)
     }
     load()
@@ -83,7 +93,7 @@ export default function JournalPage() {
 
         {/* Onglets */}
         <div className="flex gap-1 bg-[#141414] rounded p-1 w-fit">
-          {([['list', 'Trades'], ['analytics', 'Analyse comportementale']] as const).map(([tab, label]) => (
+          {([['list', 'Trades'], ['analytics', 'Analyse comportementale'], ['export', 'Export IA']] as const).map(([tab, label]) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -101,8 +111,10 @@ export default function JournalPage() {
 
         {activeTab === 'list' ? (
           <TradesList trades={filteredTrades} allTrades={trades} filter={filter} onFilterChange={setFilter} />
-        ) : (
+        ) : activeTab === 'analytics' ? (
           <BehavioralAnalytics trades={trades} />
+        ) : (
+          <ExportIA accounts={accounts} />
         )}
 
       </main>
@@ -420,6 +432,277 @@ function BehavioralAnalytics({ trades }: { trades: Trade[] }) {
                 </div>
               ))}
           </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ============================================================
+// EXPORT IA — Rapport groupé pour analyse comportementale
+// ============================================================
+
+function ExportIA({ accounts }: { accounts: TradingAccount[] }) {
+  const [accountId, setAccountId] = useState<string>('all')
+  const [period, setPeriod] = useState<'week' | 'lastweek' | 'month' | 'lastmonth' | 'custom'>('week')
+  const [dateFrom, setDateFrom] = useState<string>('')
+  const [dateTo, setDateTo] = useState<string>('')
+  const [exportTrades, setExportTrades] = useState<Trade[]>([])
+  const [isLoading, setIsLoading] = useState(false)
+  const [exportText, setExportText] = useState<string>('')
+  const [copied, setCopied] = useState(false)
+  const [hasGenerated, setHasGenerated] = useState(false)
+
+  function getPeriodDates(): { from: Date; to: Date; label: string } {
+    const now = new Date()
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+
+    if (period === 'week') {
+      const dow = today.getDay()
+      const offset = dow === 0 ? -6 : 1 - dow
+      const monday = new Date(today)
+      monday.setDate(today.getDate() + offset)
+      return { from: monday, to: new Date(), label: 'Cette semaine' }
+    }
+    if (period === 'lastweek') {
+      const dow = today.getDay()
+      const offset = dow === 0 ? -6 : 1 - dow
+      const thisMonday = new Date(today)
+      thisMonday.setDate(today.getDate() + offset)
+      const lastMonday = new Date(thisMonday)
+      lastMonday.setDate(thisMonday.getDate() - 7)
+      const lastSunday = new Date(thisMonday)
+      lastSunday.setDate(thisMonday.getDate() - 1)
+      lastSunday.setHours(23, 59, 59, 999)
+      return { from: lastMonday, to: lastSunday, label: 'Semaine dernière' }
+    }
+    if (period === 'month') {
+      return { from: new Date(now.getFullYear(), now.getMonth(), 1), to: new Date(), label: 'Ce mois' }
+    }
+    if (period === 'lastmonth') {
+      const first = new Date(now.getFullYear(), now.getMonth() - 1, 1)
+      const last = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999)
+      return { from: first, to: last, label: 'Mois dernier' }
+    }
+    // custom
+    const from = dateFrom ? new Date(dateFrom) : new Date(today.getFullYear(), today.getMonth(), 1)
+    const to = dateTo ? new Date(dateTo + 'T23:59:59') : new Date()
+    return { from, to, label: `${from.toLocaleDateString('fr-FR')} → ${to.toLocaleDateString('fr-FR')}` }
+  }
+
+  async function generate() {
+    setIsLoading(true)
+    setHasGenerated(false)
+    const { createClient } = await import('@/lib/supabase')
+    const supabase = createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) { setIsLoading(false); return }
+
+    const { from, to } = getPeriodDates()
+
+    const baseQuery = supabase
+      .from('trades')
+      .select('*')
+      .eq('user_id', user.id)
+      .gte('created_at', from.toISOString())
+      .lte('created_at', to.toISOString())
+      .order('created_at', { ascending: true })
+
+    const { data } = accountId !== 'all'
+      ? await baseQuery.eq('account_id', accountId)
+      : await baseQuery
+    const loaded: Trade[] = (data ?? []).filter((t: Trade) => t.result && t.result !== 'open')
+    setExportTrades(loaded)
+    buildText(loaded, from, to)
+    setIsLoading(false)
+    setHasGenerated(true)
+  }
+
+  function buildText(trades: Trade[], from: Date, to: Date) {
+    const accountLabel = accountId === 'all'
+      ? 'Tous les comptes'
+      : (accounts.find(a => a.id === accountId)?.name ?? accountId)
+
+    const wins = trades.filter(t => t.result === 'win').length
+    const losses = trades.filter(t => t.result === 'loss').length
+    const pnlTotal = trades.reduce((s, t) => s + (t.pnl ?? 0), 0)
+    const winRate = trades.length > 0 ? Math.round((wins / trades.length) * 100) : 0
+    const violations = trades.filter(t => !t.plan_respected || t.stop_moved || (t.revenge_flags?.length ?? 0) > 0).length
+
+    const fmt = (d: Date) => d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })
+
+    let txt = `RAPPORT TRADING — ${fmt(from)} → ${fmt(to)}
+`
+    txt += `Compte : ${accountLabel}
+`
+    txt += `${'═'.repeat(48)}
+
+`
+    txt += `RÉSUMÉ
+`
+    txt += `  Trades clôturés : ${trades.length} (${wins} gains · ${losses} pertes · Win rate ${winRate}%)
+`
+    txt += `  PnL total       : ${pnlTotal >= 0 ? '+' : ''}${pnlTotal.toFixed(2)} $
+`
+    txt += `  Violations      : ${violations} trade${violations !== 1 ? 's' : ''}
+
+`
+    txt += `${'─'.repeat(48)}
+
+`
+
+    trades.forEach((t, i) => {
+      const date = new Date(t.created_at).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' })
+      const resLabel = t.result === 'win' ? '✓ GAIN' : t.result === 'loss' ? '✗ PERTE' : '= NEUTRE'
+      const pnlStr = t.pnl !== null ? `${t.pnl >= 0 ? '+' : ''}${t.pnl.toFixed(2)} $` : 'N/R'
+
+      txt += `TRADE ${i + 1} — ${t.symbol} ${(t.direction ?? '').toUpperCase()} — ${date} — ${resLabel} ${pnlStr}
+`
+      if (t.setup_name)        txt += `  Setup      : ${t.setup_name}
+`
+      if (t.market_context)    txt += `  Contexte   : ${t.market_context}
+`
+      if (t.plan_justification) txt += `  Justif.    : ${t.plan_justification}
+`
+      if (t.entry_price)       txt += `  Niveaux    : Entrée ${t.entry_price} | SL ${t.stop_loss ?? 'N/R'} | TP ${t.take_profit_1 ?? 'N/R'} | Risque ${t.risk_amount ?? 'N/R'} $
+`
+      if (t.emotion_before)    txt += `  Émotion    : ${t.emotion_before}${t.confidence_level ? ` | Confiance ${t.confidence_level}/10` : ''}
+`
+
+      const planOk = t.plan_respected === true ? 'Oui' : t.plan_respected === false ? 'Non ⚠' : 'N/R'
+      txt += `  Plan resp. : ${planOk} | Stop déplacé : ${t.stop_moved ? `Oui — ${t.stop_moved_reason ?? ''}` : 'Non'}
+`
+
+      if (t.main_error && t.main_error !== 'none') txt += `  Erreur     : ${t.main_error}
+`
+      if (t.execution_quality) txt += `  Exec.      : ${t.execution_quality}/10
+`
+      if (t.behavioral_notes)  txt += `  Notes      : ${t.behavioral_notes}
+`
+      if ((t.revenge_flags?.length ?? 0) > 0) txt += `  ⚠ Revenge : ${t.revenge_flags?.join(', ')}
+`
+      txt += `
+`
+    })
+
+    txt += `${'─'.repeat(48)}
+
+`
+    txt += `QUESTIONS POUR L'ANALYSE IA :
+`
+    txt += `1. Quels sont les patterns comportementaux dominants sur cette période ?
+`
+    txt += `2. Y a-t-il une corrélation émotion → violations / pertes ?
+`
+    txt += `3. Quels setups ont le mieux et le moins bien performé, et pourquoi ?
+`
+    txt += `4. Quel profil psychologique ressort (impulsivité, peur, surconfiance…) ?
+`
+    txt += `5. Donne 3 recommandations prioritaires et actionnables pour la semaine suivante.
+`
+    txt += `
+Sois factuel, précis, non culpabilisant. Base-toi uniquement sur les données ci-dessus.
+`
+
+    setExportText(txt)
+  }
+
+  function copyAll() {
+    if (!exportText) return
+    navigator.clipboard.writeText(exportText)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 3000)
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Filtres */}
+      <div className="card space-y-4">
+        <div className="section-title">Paramètres du rapport</div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label className="field-label">Période</label>
+            <select
+              value={period}
+              onChange={e => setPeriod(e.target.value as typeof period)}
+              className="input-field"
+            >
+              <option value="week">Cette semaine (lun → aujourd&apos;hui)</option>
+              <option value="lastweek">Semaine dernière (lun → dim)</option>
+              <option value="month">Ce mois</option>
+              <option value="lastmonth">Mois dernier</option>
+              <option value="custom">Personnalisé</option>
+            </select>
+          </div>
+          <div>
+            <label className="field-label">Compte</label>
+            <select
+              value={accountId}
+              onChange={e => setAccountId(e.target.value)}
+              className="input-field"
+            >
+              <option value="all">Tous les comptes</option>
+              {accounts.map(a => (
+                <option key={a.id} value={a.id}>
+                  {a.name} ({a.account_type === 'prop_firm' ? 'Prop Firm' : a.account_type === 'personal' ? 'Personnel' : 'Simulation'})
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {period === 'custom' && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="field-label">Du</label>
+              <input
+                type="date"
+                value={dateFrom}
+                onChange={e => setDateFrom(e.target.value)}
+                className="input-field font-mono text-xs"
+              />
+            </div>
+            <div>
+              <label className="field-label">Au</label>
+              <input
+                type="date"
+                value={dateTo}
+                onChange={e => setDateTo(e.target.value)}
+                className="input-field font-mono text-xs"
+              />
+            </div>
+          </div>
+        )}
+
+        <button
+          onClick={generate}
+          disabled={isLoading}
+          className="btn-primary w-full"
+        >
+          {isLoading ? 'Chargement…' : 'Générer le rapport'}
+        </button>
+      </div>
+
+      {/* Rapport généré */}
+      {hasGenerated && (
+        <div className="card space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="section-title">
+              {exportTrades.length} trade{exportTrades.length !== 1 ? 's' : ''} — prêt à coller dans Claude
+            </div>
+            <button onClick={copyAll} className="btn-secondary text-xs">
+              {copied ? '✓ Copié !' : 'Copier tout'}
+            </button>
+          </div>
+
+          {exportTrades.length === 0 ? (
+            <p className="text-xs text-neutral-600">Aucun trade clôturé sur cette période pour ce compte.</p>
+          ) : (
+            <pre className="text-xs text-neutral-500 leading-relaxed whitespace-pre-wrap font-mono bg-[#0d0d0d] rounded p-4 max-h-[480px] overflow-y-auto border border-[#2a2a2a]">
+              {exportText}
+            </pre>
+          )}
         </div>
       )}
     </div>
