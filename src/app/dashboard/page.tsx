@@ -19,7 +19,7 @@ import { clsx } from 'clsx'
 import Navigation from '@/components/shared/Navigation'
 import { evaluateEmotionalState, getDailyQuote, TRADING_ALTERNATIVES } from '@/lib/behavioral-engine'
 import { refreshDisciplineScore } from '@/lib/supabase'
-import type { DailyCheckIn, EmotionalAssessment, Profile } from '@/types'
+import type { DailyCheckIn, EmotionalAssessment, Profile, TradingAccount } from '@/types'
 
 // Date locale (évite le décalage UTC pour les fuseaux UTC+X)
 function getLocalDateStr(): string {
@@ -39,8 +39,18 @@ export default function DashboardPage() {
   const [assessment, setAssessment] = useState<EmotionalAssessment | null>(null)
   const [showCheckinForm, setShowCheckinForm] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
+  const [today, setToday] = useState('')
+  const [activeAccount, setActiveAccount] = useState<TradingAccount | null>(null)
+  const [sessionInfo, setSessionInfo] = useState<{ pnl: number; consecutiveLosses: number; isActive: boolean } | null>(null)
+  const [globalPnl, setGlobalPnl] = useState<number>(0)
 
   const quote = getDailyQuote()
+
+  // Date locale calculée côté client uniquement (évite SSR/UTC mismatch)
+  useEffect(() => {
+    const d = new Date()
+    setToday(d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' }))
+  }, [])
 
   // Chargement des données
   useEffect(() => {
@@ -51,13 +61,21 @@ export default function DashboardPage() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) { router.push('/'); return }
 
-      const [{ data: profileData }, { data: checkinData }] = await Promise.all([
+      const [{ data: profileData }, { data: checkinData }, { data: accountsData }, { data: activeSession }] = await Promise.all([
         supabase.from('profiles').select('*').eq('id', user.id).single(),
         supabase.from('daily_checkins')
           .select('*')
           .eq('user_id', user.id)
           .eq('checkin_date', getLocalDateStr())
-          .maybeSingle()
+          .maybeSingle(),
+        supabase.from('accounts').select('*').eq('user_id', user.id).eq('is_active', true).order('created_at'),
+        supabase.from('trading_sessions')
+          .select('*')
+          .eq('user_id', user.id)
+          .eq('status', 'active')
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle(),
       ])
 
       setProfile(profileData)
@@ -67,6 +85,40 @@ export default function DashboardPage() {
       } else {
         setShowCheckinForm(true)
       }
+
+      // Compte actif : session en cours ou compte par défaut
+      if (accountsData && accountsData.length > 0) {
+        let acc: TradingAccount | null = null
+        if (activeSession) {
+          acc = accountsData.find((a: TradingAccount) => a.id === activeSession.account_id) ?? null
+          setSessionInfo({ pnl: activeSession.pnl_session ?? 0, consecutiveLosses: activeSession.consecutive_losses ?? 0, isActive: true })
+        }
+        if (!acc) {
+          const fallback: TradingAccount = accountsData.find((a: TradingAccount) => a.is_default) ?? accountsData[0]
+          acc = fallback
+          // PnL global du compte (30 derniers jours)
+          const { data: recentTrades } = await supabase
+            .from('trades')
+            .select('pnl, result')
+            .eq('user_id', user.id)
+            .eq('account_id', fallback.id)
+            .neq('result', 'open')
+          const total = recentTrades?.reduce((s: number, t: { pnl: number | null }) => s + (t.pnl ?? 0), 0) ?? 0
+          setGlobalPnl(total)
+          // Pertes consécutives depuis la dernière session fermée
+          const { data: lastSession } = await supabase
+            .from('trading_sessions')
+            .select('consecutive_losses')
+            .eq('user_id', user.id)
+            .eq('account_id', fallback.id)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle()
+          setSessionInfo({ pnl: total, consecutiveLosses: lastSession?.consecutive_losses ?? 0, isActive: false })
+        }
+        setActiveAccount(acc)
+      }
+
       setIsLoading(false)
     }
     loadData()
@@ -91,15 +143,36 @@ export default function DashboardPage() {
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-base font-medium text-neutral-200">
-              {new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}
+            <h1 className="text-base font-medium text-neutral-200 capitalize">
+              {today || '…'}
             </h1>
-            <p className="text-xs text-neutral-600 mt-0.5">
-              {profile?.challenge_type === 'prop_firm' ? 'Prop Firm' :
-               profile?.challenge_type === 'real' ? 'Capital réel' : 'Simulation'}
-              {' · '}
-              Balance : <span className="font-mono">{profile?.account_balance?.toLocaleString('fr-FR')} $</span>
-            </p>
+            {activeAccount ? (
+              <div className="mt-1 space-y-0.5">
+                <p className="text-xs text-neutral-500">
+                  <span className="text-neutral-400 font-medium">{activeAccount.name}</span>
+                  {' · '}
+                  <span className="font-mono">{activeAccount.account_balance.toLocaleString('fr-FR')} $</span>
+                  {sessionInfo?.isActive && (
+                    <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-neutral-800 text-neutral-400">Session active</span>
+                  )}
+                </p>
+                {sessionInfo && (
+                  <p className="text-xs text-neutral-600">
+                    PnL{sessionInfo.isActive ? ' session' : ' global'} :{' '}
+                    <span className={sessionInfo.pnl >= 0 ? 'text-neutral-400 font-mono' : 'text-neutral-500 font-mono'}>
+                      {sessionInfo.pnl >= 0 ? '+' : ''}{sessionInfo.pnl.toFixed(2)} $
+                    </span>
+                    {sessionInfo.consecutiveLosses > 0 && (
+                      <span className="ml-3 text-[#e67e22]">
+                        {sessionInfo.consecutiveLosses} perte{sessionInfo.consecutiveLosses > 1 ? 's' : ''} consécutive{sessionInfo.consecutiveLosses > 1 ? 's' : ''}
+                      </span>
+                    )}
+                  </p>
+                )}
+              </div>
+            ) : (
+              <p className="text-xs text-neutral-600 mt-0.5">Aucun compte configuré</p>
+            )}
           </div>
         </div>
 
