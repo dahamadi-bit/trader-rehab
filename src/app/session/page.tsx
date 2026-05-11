@@ -440,7 +440,7 @@ export default function SessionPage() {
         {/* Phase : session active */}
         {session && phase === 'idle' && (
           <>
-            <SessionStatus session={session} />
+            <SessionStatus session={session} maxTrades={selectedAccount?.max_trades_per_session ?? 2} maxLosses={selectedAccount?.max_consecutive_losses ?? 2} />
             <button
               onClick={() => {
                 const check = canOpenTrade(session, selectedAccount ?? undefined)
@@ -477,6 +477,8 @@ export default function SessionPage() {
             )}
             <PreTradeForm
               playbooks={playbooks}
+              accountBalance={selectedAccount?.account_balance ?? 10000}
+              maxRiskPercent={selectedAccount?.max_risk_per_trade ?? 0.005}
               onRevengeDetected={setRevengeAlert}
               onSubmit={async (data) => {
                 const { createClient } = await import('@/lib/supabase')
@@ -484,18 +486,27 @@ export default function SessionPage() {
                 const { data: { user } } = await supabase.auth.getUser()
                 if (!user) return
 
+                const newCount = session.tradesCount + 1
+                const maxTrades = selectedAccount?.max_trades_per_session ?? 2
+
                 await supabase.from('trades').insert({
                   user_id: user.id,
                   session_id: session.sessionId,
+                  account_id: selectedAccount?.id ?? null,
                   ...data,
-                  session_type: 'prop_firm',
+                  session_type: selectedAccount?.account_type ?? 'simulation',
                   result: 'open',
                 })
 
+                // Mettre à jour trades_count en base
+                await supabase.from('trading_sessions').update({
+                  trades_count: newCount,
+                }).eq('id', session.sessionId)
+
                 setSession(prev => prev ? {
                   ...prev,
-                  tradesCount: prev.tradesCount + 1,
-                  canOpenTrade: prev.tradesCount + 1 < 2,
+                  tradesCount: newCount,
+                  canOpenTrade: newCount < maxTrades,
                 } : null)
 
                 setPhase('active_trade')
@@ -565,13 +576,13 @@ export default function SessionPage() {
 // SESSION STATUS
 // ============================================================
 
-function SessionStatus({ session }: { session: ActiveSessionState }) {
+function SessionStatus({ session, maxTrades, maxLosses }: { session: ActiveSessionState; maxTrades: number; maxLosses: number }) {
   return (
     <div className="card">
       <div className="grid grid-cols-4 gap-4">
         {[
-          { label: 'Trades',        value: `${session.tradesCount}/2` },
-          { label: 'Pertes consec.', value: `${session.consecutiveLosses}/2` },
+          { label: 'Trades',        value: `${session.tradesCount}/${maxTrades}` },
+          { label: 'Pertes consec.', value: `${session.consecutiveLosses}/${maxLosses}` },
           { label: 'PnL session',   value: `${session.pnl >= 0 ? '+' : ''}${session.pnl.toFixed(0)} $` },
           { label: 'Statut',        value: session.cooldownActive ? 'Cooldown' : 'Actif' },
         ].map(({ label, value }) => (
@@ -592,12 +603,14 @@ function SessionStatus({ session }: { session: ActiveSessionState }) {
 interface PreTradeFormProps {
   session: ActiveSessionState
   playbooks: PlaybookSetup[]
+  accountBalance: number
+  maxRiskPercent: number
   onRevengeDetected: (result: RevengeDetectionResult) => void
   onSubmit: (data: PreTradeFormData) => Promise<void>
   onCancel: () => void
 }
 
-function PreTradeForm({ playbooks, onRevengeDetected, onSubmit, onCancel }: Omit<PreTradeFormProps, 'session'>) {
+function PreTradeForm({ playbooks, accountBalance, maxRiskPercent, onRevengeDetected, onSubmit, onCancel }: Omit<PreTradeFormProps, 'session'>) {
   const { register, handleSubmit, watch, setValue, formState: { errors, isSubmitting } } = useForm<PreTradeFormData>({
     resolver: zodResolver(PreTradeSchema),
   })
@@ -613,8 +626,8 @@ function PreTradeForm({ playbooks, onRevengeDetected, onSubmit, onCancel }: Omit
   useEffect(() => {
     if (entryPrice > 0 && stopLoss > 0) {
       const calc = calculatePositionSize({
-        accountBalance: 10000,  // TODO: récupérer depuis profil
-        riskPercent: 0.005,
+        accountBalance,
+        riskPercent: maxRiskPercent,
         entryPrice, stopLoss,
       })
       setRiskCalc(calc)

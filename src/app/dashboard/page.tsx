@@ -21,6 +21,13 @@ import { evaluateEmotionalState, getDailyQuote, TRADING_ALTERNATIVES } from '@/l
 import { refreshDisciplineScore } from '@/lib/supabase'
 import type { DailyCheckIn, EmotionalAssessment, Profile } from '@/types'
 
+// Date locale (évite le décalage UTC pour les fuseaux UTC+X)
+function getLocalDateStr(): string {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+
 // ============================================================
 // COMPOSANT PRINCIPAL
 // ============================================================
@@ -49,7 +56,7 @@ export default function DashboardPage() {
         supabase.from('daily_checkins')
           .select('*')
           .eq('user_id', user.id)
-          .eq('checkin_date', new Date().toISOString().split('T')[0])
+          .eq('checkin_date', getLocalDateStr())
           .maybeSingle()
       ])
 
