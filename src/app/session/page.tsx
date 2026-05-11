@@ -135,14 +135,20 @@ export default function SessionPage() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
 
-    // Chercher une session active pour CE compte spécifiquement
-    const { data: activeSession } = await supabase
+    // Chercher une session active - avec account_id si disponible
+    let { data: activeSession, error: findSessErr } = await supabase
       .from('trading_sessions')
       .select('*')
       .eq('user_id', user.id)
       .eq('status', 'active')
       .eq('account_id', account.id)
       .maybeSingle()
+    // Fallback si colonne account_id absente
+    if (findSessErr?.code === '42703' || findSessErr?.message?.includes('account_id')) {
+      ;({ data: activeSession } = await supabase
+        .from('trading_sessions').select('*')
+        .eq('user_id', user.id).eq('status', 'active').maybeSingle())
+    }
 
     if (activeSession) {
       const state: ActiveSessionState = {
@@ -170,15 +176,19 @@ export default function SessionPage() {
     if (!user) return
 
     const sessionType = selectedAccount?.account_type ?? 'simulation'
-    const { data: newSession } = await supabase
-      .from('trading_sessions')
-      .insert({
-        user_id: user.id,
-        session_type: sessionType,
-        ...(selectedAccount ? { account_id: selectedAccount.id } : {}),
-      })
-      .select()
-      .single()
+    const sessionPayload: Record<string, unknown> = {
+      user_id: user.id,
+      session_type: sessionType,
+      ...(selectedAccount ? { account_id: selectedAccount.id } : {}),
+    }
+    let { data: newSession, error: sessInsertErr } = await supabase
+      .from('trading_sessions').insert(sessionPayload).select().single()
+    // Fallback si colonne account_id absente (migration non exécutée)
+    if (sessInsertErr?.code === '42703' || sessInsertErr?.message?.includes('account_id')) {
+      const { account_id: _drop, ...sessPayloadNoAcc } = sessionPayload
+      ;({ data: newSession } = await supabase
+        .from('trading_sessions').insert(sessPayloadNoAcc).select().single())
+    }
 
     if (newSession) {
       setSession({
@@ -489,16 +499,22 @@ export default function SessionPage() {
                 const newCount = session.tradesCount + 1
                 const maxTrades = selectedAccount?.max_trades_per_session ?? 2
 
-                const { error: tradeInsertError } = await supabase.from('trades').insert({
+                const tradePayload: Record<string, unknown> = {
                   user_id: user.id,
                   session_id: session.sessionId,
                   account_id: selectedAccount?.id ?? null,
                   ...data,
                   session_type: selectedAccount?.account_type ?? 'simulation',
                   result: 'open',
-                })
+                }
+                let { error: tradeInsertError } = await supabase.from('trades').insert(tradePayload)
+                // Fallback si colonne account_id absente (migration non exécutée)
+                if (tradeInsertError?.code === '42703' || tradeInsertError?.message?.includes('account_id')) {
+                  const { account_id: _drop, ...tradePayloadNoAcc } = tradePayload
+                  ;({ error: tradeInsertError } = await supabase.from('trades').insert(tradePayloadNoAcc))
+                }
                 if (tradeInsertError) {
-                  setBlockMessage(`Erreur d'enregistrement du trade : ${tradeInsertError.message}. Vérifiez que la migration SQL a été exécutée dans Supabase.`)
+                  setBlockMessage(`Erreur enregistrement trade : ${tradeInsertError.message}`)
                   setPhase('idle')
                   return
                 }

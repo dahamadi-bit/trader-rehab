@@ -101,39 +101,27 @@ export default function DashboardPage() {
           // Stratégie : sessions avec account_id + trades orphelins avec account_id
           // Fallback si la migration n'a pas été exécutée (colonne account_id absente)
 
-          const [{ data: closedSessions, error: sessErr }, { data: orphanTrades, error: tradeErr }] = await Promise.all([
+          // Sans filtre account_id : fonctionne avec ou sans migration
+          const [{ data: allSessions }, { data: orphanTrades }] = await Promise.all([
             supabase.from('trading_sessions')
               .select('pnl_session, consecutive_losses')
               .eq('user_id', user.id)
-              .eq('account_id', fallback.id)
-              .in('status', ['completed', 'force_closed']),
+              .in('status', ['completed', 'force_closed'])
+              .order('ended_at', { ascending: false })
+              .limit(200),
             supabase.from('trades')
               .select('pnl, result')
               .eq('user_id', user.id)
-              .eq('account_id', fallback.id)
               .is('session_id', null),
           ])
 
-          let total = 0
-          let lastConsecLosses = 0
+          let total = (allSessions ?? []).reduce(
+            (s: number, sess: { pnl_session: number | null }) => s + (sess.pnl_session ?? 0), 0)
+          const lastConsecLosses = activeSession?.consecutive_losses ?? allSessions?.[0]?.consecutive_losses ?? 0
 
-          if (!sessErr && closedSessions) {
-            // Migration faite : somme sessions + trades orphelins
-            total += closedSessions.reduce((s: number, sess: { pnl_session: number | null }) => s + (sess.pnl_session ?? 0), 0)
-            lastConsecLosses = closedSessions[0]?.consecutive_losses ?? 0
-          }
-          if (!tradeErr && orphanTrades) {
-            // Trades manuels sans session
-            const closed = orphanTrades.filter((t: { pnl: number | null; result: string | null }) => t.result && t.result !== 'open')
-            total += closed.reduce((s: number, t: { pnl: number | null }) => s + (t.pnl ?? 0), 0)
-          }
-          if (sessErr && tradeErr) {
-            // Fallback : migration non exécutée — somme tous les trades de l'utilisateur
-            const { data: allTrades } = await supabase
-              .from('trades').select('pnl, result').eq('user_id', user.id)
-            const closed = (allTrades ?? []).filter((t: { pnl: number | null; result: string | null }) => t.result && t.result !== 'open')
-            total = closed.reduce((s: number, t: { pnl: number | null }) => s + (t.pnl ?? 0), 0)
-          }
+          const orphanClosed = (orphanTrades ?? []).filter(
+            (t: { pnl: number | null; result: string | null }) => t.result && t.result !== 'open')
+          total += orphanClosed.reduce((s: number, t: { pnl: number | null }) => s + (t.pnl ?? 0), 0)
 
           setGlobalPnl(total)
           setSessionInfo({ pnl: total, consecutiveLosses: lastConsecLosses, isActive: false })
