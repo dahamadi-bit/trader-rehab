@@ -85,7 +85,7 @@ export default function TradeDetailPage() {
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { id: _id, created_at: _ca, updated_at: _ua, user_id: _uid, ...insertData } = data as Trade
 
-      let sessionId: string | null = selectedSessionId === 'new' ? null : (selectedSessionId ?? null)
+      let sessionId: string | null = (!selectedSessionId || selectedSessionId === 'new') ? null : selectedSessionId
 
       // Créer une session rétroactive si demandé
       if (selectedSessionId === 'new' && selectedAccountId) {
@@ -130,17 +130,21 @@ export default function TradeDetailPage() {
 
       // Recalculer métriques si session existante
       if (sessionId && selectedSessionId !== 'new') {
-        const { data: sessionTrades } = await supabase
+        const { data: allSessionTrades } = await supabase
           .from('trades').select('result, pnl')
-          .eq('session_id', sessionId).neq('result', 'open')
-        if (sessionTrades) {
-          const pnlTotal = sessionTrades.reduce((s, t) => s + (t.pnl ?? 0), 0)
+          .eq('session_id', sessionId)
+        if (allSessionTrades) {
+          // trades_count = tous les trades (incluant le nouveau)
+          const tradesCount = allSessionTrades.length
+          // PnL et pertes consécutives = trades clôturés uniquement
+          const closed = allSessionTrades.filter(t => t.result && t.result !== 'open')
+          const pnlTotal = closed.reduce((s, t) => s + (t.pnl ?? 0), 0)
           let cl = 0
-          for (let i = sessionTrades.length - 1; i >= 0; i--) {
-            if (sessionTrades[i].result === 'loss') cl++; else break
+          for (let i = closed.length - 1; i >= 0; i--) {
+            if (closed[i].result === 'loss') cl++; else break
           }
           await supabase.from('trading_sessions').update({
-            trades_count: sessionTrades.length,
+            trades_count: tradesCount,
             pnl_session: pnlTotal,
             consecutive_losses: cl,
           }).eq('id', sessionId)
