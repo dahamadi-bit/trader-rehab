@@ -242,10 +242,10 @@ export default function SessionPage() {
   return (
     <div className="flex h-screen overflow-hidden">
       <Navigation />
-      <main className="flex-1 overflow-y-auto p-6 space-y-5">
+      <main className="flex-1 overflow-y-auto p-4 md:p-6 pb-24 md:pb-6 space-y-5">
 
         {/* Header session */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <h1 className="text-base font-medium text-neutral-200">Session Trading</h1>
           {session && (
             <div className="flex items-center gap-4">
@@ -600,7 +600,7 @@ export default function SessionPage() {
 function SessionStatus({ session, maxTrades, maxLosses }: { session: ActiveSessionState; maxTrades: number; maxLosses: number }) {
   return (
     <div className="card">
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         {[
           { label: 'Trades',        value: `${session.tradesCount}/${maxTrades}` },
           { label: 'Pertes consec.', value: `${session.consecutiveLosses}/${maxLosses}` },
@@ -681,7 +681,7 @@ function PreTradeForm({ playbooks, accountBalance, maxRiskPercent, onRevengeDete
 
       <form onSubmit={handleSubmit(handleFormSubmit)} className="space-y-5">
         {/* Instrument + Direction */}
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="field-label">Instrument</label>
             <input {...register('symbol')} placeholder="DAX, EUR/USD…" className="input-field" />
@@ -716,7 +716,7 @@ function PreTradeForm({ playbooks, accountBalance, maxRiskPercent, onRevengeDete
         </div>
 
         {/* Prix */}
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div>
             <label className="field-label">Entrée</label>
             <input {...register('entry_price', { valueAsNumber: true })} type="number" step="0.00001" className="input-field font-mono" />

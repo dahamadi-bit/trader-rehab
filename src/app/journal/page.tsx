@@ -71,7 +71,7 @@ export default function JournalPage() {
   return (
     <div className="flex h-screen overflow-hidden">
       <Navigation />
-      <main className="flex-1 overflow-y-auto p-6 space-y-5">
+      <main className="flex-1 overflow-y-auto p-4 md:p-6 pb-24 md:pb-6 space-y-5">
 
         {/* Header */}
         <div className="flex items-center justify-between">
@@ -135,7 +135,7 @@ function TradesList({
   return (
     <div className="space-y-4">
       {/* Statistiques rapides */}
-      <div className="grid grid-cols-5 gap-3">
+      <div className="grid grid-cols-3 sm:grid-cols-5 gap-2 sm:gap-3">
         {[
           { label: 'Trades', value: stats.total },
           { label: 'Gains',  value: stats.wins },
@@ -212,7 +212,7 @@ function TradeRow({ trade }: { trade: Trade }) {
             )}
           </div>
 
-          <div className="flex items-center gap-5">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 justify-end">
             {/* PnL */}
             <span className={clsx(
               'text-sm font-mono',
@@ -246,7 +246,7 @@ function TradeRow({ trade }: { trade: Trade }) {
             )}
 
             {/* Date */}
-            <span className="text-xxs text-neutral-700">
+            <span className="hidden sm:inline text-xxs text-neutral-700">
               {new Date(trade.created_at).toLocaleDateString('fr-FR')}
             </span>
           </div>
@@ -330,7 +330,7 @@ function BehavioralAnalytics({ trades }: { trades: Trade[] }) {
             </div>
           </div>
         </div>
-        <div className="grid grid-cols-5 gap-2">
+        <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
           {[
             { label: 'Plan',       value: scoreBreakdown.planCompliance,   max: 30 },
             { label: 'Émotions',   value: scoreBreakdown.emotionalControl, max: 25 },

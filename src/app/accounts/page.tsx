@@ -236,7 +236,7 @@ export default function AccountsPage() {
   return (
     <div className="flex h-screen overflow-hidden">
       <Navigation />
-      <main className="flex-1 overflow-y-auto p-6 space-y-5">
+      <main className="flex-1 overflow-y-auto p-4 md:p-6 pb-24 md:pb-6 space-y-5">
 
         <div className="flex items-center justify-between">
           <div>
@@ -289,7 +289,7 @@ export default function AccountsPage() {
                   </div>
 
                   {/* Métriques clés */}
-                  <div className="grid grid-cols-4 gap-3 mt-3">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 mt-3">
                     {[
                       { label: 'Solde',         value: `${account.account_balance.toLocaleString('fr-FR')} $` },
                       { label: 'Risque/trade',  value: `${(account.max_risk_per_trade * 100).toFixed(1)}%` },
@@ -348,7 +348,7 @@ export default function AccountsPage() {
             <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
 
               {/* Identification */}
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="field-label">Nom du compte *</label>
                   <input
@@ -404,7 +404,7 @@ export default function AccountsPage() {
               </div>
 
               {/* Capital */}
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="field-label">Solde actuel ($)</label>
                   <input
@@ -461,7 +461,7 @@ export default function AccountsPage() {
               <div className="divider" />
               <div className="section-title">Règles de risque par trade / jour</div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="field-label">Risque max / trade</label>
                   <div className="flex gap-2 items-center">

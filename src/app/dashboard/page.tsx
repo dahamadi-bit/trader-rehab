@@ -149,7 +149,7 @@ export default function DashboardPage() {
         consecutiveCleanDays={profile?.consecutive_clean_days}
       />
 
-      <main className="flex-1 overflow-y-auto p-6 space-y-6">
+      <main className="flex-1 overflow-y-auto p-4 md:p-6 pb-24 md:pb-6 space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
@@ -421,7 +421,7 @@ function EmotionalStateCard({ checkin, assessment, onEdit }: { checkin: DailyChe
           Modifier
         </button>
       </div>
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
         {metrics.map(({ label, value, blocking }) => (
           <div key={label} className={clsx('rounded p-3', blocking ? 'bg-[#e74c3c]/5 border border-[#e74c3c]/20' : 'bg-[#1a1a1a]')}>
             <div className="text-xxs text-neutral-600 uppercase tracking-wider mb-1">{label}</div>
@@ -531,7 +531,7 @@ function DisciplineStats({ profile }: { profile: Profile }) {
   return (
     <div className="card">
       <div className="section-title mb-4">Discipline</div>
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         {stats.map(({ label, value, mono }) => (
           <div key={label} className="bg-[#1a1a1a] rounded p-3">
             <div className="text-xxs text-neutral-600 uppercase tracking-wider mb-1.5">{label}</div>

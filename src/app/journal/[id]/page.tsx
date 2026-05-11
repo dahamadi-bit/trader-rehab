@@ -247,7 +247,7 @@ Analyse ce trade comportementalement. Identifie le pattern principal, ce qui a b
   return (
     <div className="flex h-screen overflow-hidden">
       <Navigation />
-      <main className="flex-1 overflow-y-auto p-6 space-y-5">
+      <main className="flex-1 overflow-y-auto p-4 md:p-6 pb-24 md:pb-6 space-y-5">
 
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -259,7 +259,7 @@ Analyse ce trade comportementalement. Identifie le pattern principal, ce qui a b
             </h1>
           </div>
           {!isNew && !editMode && (
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
             <button onClick={copyTradeForAnalysis} className="btn-secondary text-xs">
               {copied ? '✓ Copié' : 'Copier pour Claude'}
             </button>
@@ -365,7 +365,7 @@ function TradeView({ trade }: { trade: Trade }) {
           <div className="section-title mb-4">{title}</div>
           <div className="space-y-3">
             {fields.filter(f => f.value).map(({ label, value }) => (
-              <div key={label} className="grid grid-cols-3 gap-3">
+              <div key={label} className="grid grid-cols-3 gap-3 sm:gap-4">
                 <div className="text-xs text-neutral-600">{label}</div>
                 <div className="col-span-2 text-xs text-neutral-400 leading-relaxed">{value}</div>
               </div>
@@ -450,7 +450,7 @@ function TradeForm({ trade, isNew, sessions, accounts, selectedSessionId, select
               </select>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="field-label">Heure d&apos;entrée</label>
                 <input {...register('entry_time')} type="datetime-local" className="input-field font-mono text-xs" />
@@ -465,7 +465,7 @@ function TradeForm({ trade, isNew, sessions, accounts, selectedSessionId, select
 
         <div className="section-title mb-2">AVANT — Plan</div>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div><label className="field-label">Instrument</label>
             <input {...register('symbol')} defaultValue={trade?.symbol ?? ''} className="input-field" /></div>
           <div><label className="field-label">Direction</label>
@@ -481,7 +481,7 @@ function TradeForm({ trade, isNew, sessions, accounts, selectedSessionId, select
           <textarea {...register('plan_justification')} defaultValue={trade?.plan_justification ?? ''} rows={2}
             placeholder="Ce trade respecte mon plan parce que…" className="textarea-field" /></div>
 
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div><label className="field-label">Entrée</label><input {...register('entry_price', { valueAsNumber: true })} type="number" step="0.00001" className="input-field font-mono" /></div>
           <div><label className="field-label">SL</label><input {...register('stop_loss', { valueAsNumber: true })} type="number" step="0.00001" className="input-field font-mono" /></div>
           <div><label className="field-label">TP1</label><input {...register('take_profit_1', { valueAsNumber: true })} type="number" step="0.00001" className="input-field font-mono" /></div>
@@ -498,7 +498,7 @@ function TradeForm({ trade, isNew, sessions, accounts, selectedSessionId, select
         <div className="divider" />
         <div className="section-title">PENDANT</div>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div><label className="field-label">Plan respecté</label>
             <select {...register('plan_respected', { setValueAs: (v: string) => v === '' ? null : v === 'true' })} className="input-field">
               <option value="">—</option><option value="true">Oui</option><option value="false">Non</option>
@@ -515,7 +515,7 @@ function TradeForm({ trade, isNew, sessions, accounts, selectedSessionId, select
         <div className="divider" />
         <div className="section-title">APRÈS</div>
 
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div><label className="field-label">Résultat</label>
             <select {...register('result')} defaultValue={trade?.result ?? ''} className="input-field">
               <option value="">—</option><option value="win">Gain</option>
