@@ -409,7 +409,7 @@ export default function AccountsPage() {
                   <label className="field-label">Solde actuel ($)</label>
                   <input
                     {...register('account_balance', { valueAsNumber: true, required: true })}
-                    type="number" step="100"
+                    type="number" step="1"
                     className="input-field font-mono"
                   />
                 </div>
@@ -417,7 +417,7 @@ export default function AccountsPage() {
                   <label className="field-label">Capital initial ($)</label>
                   <input
                     {...register('starting_balance', { valueAsNumber: true, required: true })}
-                    type="number" step="100"
+                    type="number" step="1"
                     className="input-field font-mono"
                   />
                   <p className="text-xxs text-neutral-700 mt-1">Sert de référence pour le drawdown</p>
@@ -432,7 +432,7 @@ export default function AccountsPage() {
                     <label className="field-label">Plancher absolu ($)</label>
                     <input
                       {...register('drawdown_floor', { valueAsNumber: true })}
-                      type="number" step="100"
+                      type="number" step="1"
                       placeholder="ex: 9000"
                       className="input-field font-mono"
                     />

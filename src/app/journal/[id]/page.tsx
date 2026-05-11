@@ -474,9 +474,9 @@ function TradeForm({ trade, isNew, sessions, accounts, selectedSessionId, select
             placeholder="Ce trade respecte mon plan parce que…" className="textarea-field" /></div>
 
         <div className="grid grid-cols-3 gap-4">
-          <div><label className="field-label">Entrée</label><input {...register('entry_price', { valueAsNumber: true })} type="number" step="0.01" className="input-field font-mono" /></div>
-          <div><label className="field-label">SL</label><input {...register('stop_loss', { valueAsNumber: true })} type="number" step="0.01" className="input-field font-mono" /></div>
-          <div><label className="field-label">TP1</label><input {...register('take_profit_1', { valueAsNumber: true })} type="number" step="0.01" className="input-field font-mono" /></div>
+          <div><label className="field-label">Entrée</label><input {...register('entry_price', { valueAsNumber: true })} type="number" step="0.00001" className="input-field font-mono" /></div>
+          <div><label className="field-label">SL</label><input {...register('stop_loss', { valueAsNumber: true })} type="number" step="0.00001" className="input-field font-mono" /></div>
+          <div><label className="field-label">TP1</label><input {...register('take_profit_1', { valueAsNumber: true })} type="number" step="0.00001" className="input-field font-mono" /></div>
         </div>
 
         <div><label className="field-label">Émotion avant</label>

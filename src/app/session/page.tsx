@@ -698,17 +698,17 @@ function PreTradeForm({ playbooks, accountBalance, maxRiskPercent, onRevengeDete
         <div className="grid grid-cols-3 gap-4">
           <div>
             <label className="field-label">Entrée</label>
-            <input {...register('entry_price', { valueAsNumber: true })} type="number" step="0.01" className="input-field font-mono" />
+            <input {...register('entry_price', { valueAsNumber: true })} type="number" step="0.00001" className="input-field font-mono" />
             {errors.entry_price && <p className="text-xxs text-[#e74c3c] mt-1">{errors.entry_price.message}</p>}
           </div>
           <div>
             <label className="field-label">Stop Loss</label>
-            <input {...register('stop_loss', { valueAsNumber: true })} type="number" step="0.01" className="input-field font-mono" />
+            <input {...register('stop_loss', { valueAsNumber: true })} type="number" step="0.00001" className="input-field font-mono" />
             {errors.stop_loss && <p className="text-xxs text-[#e74c3c] mt-1">{errors.stop_loss.message}</p>}
           </div>
           <div>
             <label className="field-label">TP1</label>
-            <input {...register('take_profit_1', { valueAsNumber: true })} type="number" step="0.01" className="input-field font-mono" />
+            <input {...register('take_profit_1', { valueAsNumber: true })} type="number" step="0.00001" className="input-field font-mono" />
           </div>
         </div>
 
