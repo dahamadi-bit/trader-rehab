@@ -114,6 +114,8 @@ export interface TradingSession {
   checkin_id: string | null
   emotional_state_open: string | null
   notes: string | null
+  account_id: string | null
+  is_retroactive: boolean
 }
 
 export interface Trade {
@@ -153,6 +155,8 @@ export interface Trade {
   temptation_notes: string | null
 
   // Après
+  entry_time: string | null
+  exit_time: string | null
   exit_price: number | null
   pnl: number | null
   result: TradeResult | null

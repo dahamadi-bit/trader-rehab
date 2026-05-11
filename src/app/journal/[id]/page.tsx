@@ -11,7 +11,7 @@ import { useForm } from 'react-hook-form'
 import type { UseFormRegister, UseFormHandleSubmit } from 'react-hook-form'
 import { clsx } from 'clsx'
 import Navigation from '@/components/shared/Navigation'
-import type { Trade } from '@/types'
+import type { Trade, TradingSession, TradingAccount } from '@/types'
 
 export default function TradeDetailPage() {
   const params = useParams()
@@ -23,6 +23,10 @@ export default function TradeDetailPage() {
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [editMode, setEditMode] = useState(false)
   const [isNew, setIsNew] = useState(id === 'new')
+  const [sessions, setSessions] = useState<TradingSession[]>([])
+  const [accounts, setAccounts] = useState<TradingAccount[]>([])
+  const [selectedSessionId, setSelectedSessionId] = useState<string | 'new' | null>(null)
+  const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null)
 
   const { register, handleSubmit, reset } = useForm<Partial<Trade>>()
 
@@ -30,6 +34,34 @@ export default function TradeDetailPage() {
     if (id === 'new') {
       setIsLoading(false)
       setEditMode(true)
+      // Charger sessions récentes et comptes pour le formulaire manuel
+      async function loadOptions() {
+        const { createClient } = await import('@/lib/supabase')
+        const supabase = createClient()
+        const { data: { user } } = await supabase.auth.getUser()
+        if (!user) return
+        const sevenDaysAgo = new Date(); sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
+        const [{ data: sessionData }, { data: accountData }] = await Promise.all([
+          supabase.from('trading_sessions')
+            .select('*')
+            .eq('user_id', user.id)
+            .gte('started_at', sevenDaysAgo.toISOString())
+            .order('started_at', { ascending: false })
+            .limit(10),
+          supabase.from('accounts')
+            .select('*')
+            .eq('user_id', user.id)
+            .eq('is_active', true)
+            .order('created_at'),
+        ])
+        if (sessionData) setSessions(sessionData)
+        if (accountData) {
+          setAccounts(accountData)
+          const def = accountData.find((a: TradingAccount) => a.is_default) ?? accountData[0]
+          if (def) setSelectedAccountId(def.id)
+        }
+      }
+      loadOptions()
       return
     }
     async function load() {
@@ -52,10 +84,69 @@ export default function TradeDetailPage() {
     if (isNew) {
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { id: _id, created_at: _ca, updated_at: _ua, user_id: _uid, ...insertData } = data as Trade
+
+      let sessionId: string | null = selectedSessionId === 'new' ? null : (selectedSessionId ?? null)
+
+      // Créer une session rétroactive si demandé
+      if (selectedSessionId === 'new' && selectedAccountId) {
+        const entryTime = (data as Trade).entry_time
+        const exitTime = (data as Trade).exit_time
+        const startedAt = entryTime ?? new Date().toISOString()
+        const endedAt = exitTime ?? new Date().toISOString()
+        const durationMs = entryTime && exitTime
+          ? new Date(exitTime).getTime() - new Date(entryTime).getTime()
+          : 0
+        const durationMin = Math.round(durationMs / 60000)
+        const acc = accounts.find(a => a.id === selectedAccountId)
+        const { data: newSession } = await supabase.from('trading_sessions').insert({
+          user_id: user.id,
+          account_id: selectedAccountId,
+          session_type: acc?.account_type ?? 'simulation',
+          status: 'completed',
+          close_reason: 'manual',
+          is_retroactive: true,
+          started_at: startedAt,
+          ended_at: endedAt,
+          duration_minutes: durationMin,
+          trades_count: 1,
+          pnl_session: data.pnl ?? 0,
+          consecutive_losses: data.result === 'loss' ? 1 : 0,
+        }).select().single()
+        if (newSession) sessionId = newSession.id
+      }
+
+      // Strip fields that will be set explicitly to avoid duplicates
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { session_id: _sid, account_id: _aid, user_id: _uid2, ...cleanInsert } = insertData as Trade & { session_id: unknown; account_id: unknown; user_id: unknown }
       const { data: created } = await supabase
         .from('trades')
-        .insert({ user_id: user.id, ...insertData })
+        .insert({
+          user_id: user.id,
+          session_id: sessionId,
+          account_id: selectedAccountId,
+          ...cleanInsert,
+        })
         .select().single()
+
+      // Recalculer métriques si session existante
+      if (sessionId && selectedSessionId !== 'new') {
+        const { data: sessionTrades } = await supabase
+          .from('trades').select('result, pnl')
+          .eq('session_id', sessionId).neq('result', 'open')
+        if (sessionTrades) {
+          const pnlTotal = sessionTrades.reduce((s, t) => s + (t.pnl ?? 0), 0)
+          let cl = 0
+          for (let i = sessionTrades.length - 1; i >= 0; i--) {
+            if (sessionTrades[i].result === 'loss') cl++; else break
+          }
+          await supabase.from('trading_sessions').update({
+            trades_count: sessionTrades.length,
+            pnl_session: pnlTotal,
+            consecutive_losses: cl,
+          }).eq('id', sessionId)
+        }
+      }
+
       if (created) { setTrade(created); setIsNew(false); setEditMode(false) }
     } else {
       const { data: updated } = await supabase
@@ -180,6 +271,13 @@ Analyse ce trade comportementalement. Identifie le pattern principal, ce qui a b
         {editMode ? (
           <TradeForm
             trade={trade}
+            isNew={isNew}
+            sessions={sessions}
+            accounts={accounts}
+            selectedSessionId={selectedSessionId}
+            selectedAccountId={selectedAccountId}
+            onSessionChange={setSelectedSessionId}
+            onAccountChange={setSelectedAccountId}
             register={register}
             handleSubmit={handleSubmit}
             onSubmit={onSubmit}
@@ -200,6 +298,10 @@ function TradeView({ trade }: { trade: Trade }) {
       title: 'AVANT — Plan',
       fields: [
         { label: 'Instrument', value: `${trade.symbol} ${trade.direction ?? ''}` },
+        { label: 'Heure entrée', value: trade.entry_time ? new Date(trade.entry_time).toLocaleString('fr-FR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : null },
+        { label: 'Durée', value: (trade.entry_time && trade.exit_time) ? `${Math.round((new Date(trade.exit_time).getTime() - new Date(trade.entry_time).getTime()) / 60000)} min` : null },
+        { label: 'Heure entrée', value: trade.entry_time ? new Date(trade.entry_time).toLocaleString('fr-FR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : null },
+        { label: 'Durée', value: trade.entry_time && trade.exit_time ? `${Math.round((new Date(trade.exit_time).getTime() - new Date(trade.entry_time).getTime()) / 60000)} min` : null },
         { label: 'Setup', value: trade.setup_name },
         { label: 'Contexte marché', value: trade.market_context },
         { label: 'Justification', value: trade.plan_justification },
@@ -277,16 +379,78 @@ function TradeView({ trade }: { trade: Trade }) {
 // ——— Formulaire saisie/modification ———
 interface TradeFormProps {
   trade: Trade | null
+  isNew?: boolean
+  sessions?: TradingSession[]
+  accounts?: TradingAccount[]
+  selectedSessionId?: string | 'new' | null
+  selectedAccountId?: string | null
+  onSessionChange?: (v: string | 'new') => void
+  onAccountChange?: (v: string) => void
   register: UseFormRegister<Partial<Trade>>
   handleSubmit: UseFormHandleSubmit<Partial<Trade>>
   onSubmit: (data: Partial<Trade>) => Promise<void>
   onCancel: () => void
 }
 
-function TradeForm({ trade, register, handleSubmit, onSubmit, onCancel }: TradeFormProps) {
+function TradeForm({ trade, isNew, sessions, accounts, selectedSessionId, selectedAccountId, onSessionChange, onAccountChange, register, handleSubmit, onSubmit, onCancel }: TradeFormProps) {
   return (
     <div className="card">
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
+
+        {/* === SÉLECTION SESSION & COMPTE (trade manuel uniquement) === */}
+        {isNew && (
+          <div className="space-y-4 pb-4 border-b border-neutral-800">
+            <div className="section-title">Session & compte</div>
+
+            {accounts && accounts.length > 0 && (
+              <div>
+                <label className="field-label">Compte</label>
+                <select
+                  value={selectedAccountId ?? ''}
+                  onChange={e => onAccountChange?.(e.target.value)}
+                  className="input-field"
+                >
+                  {accounts.map(a => (
+                    <option key={a.id} value={a.id}>{a.name} — {a.account_balance.toLocaleString('fr-FR')} $</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            <div>
+              <label className="field-label">Rattacher à une session</label>
+              <select
+                value={selectedSessionId ?? ''}
+                onChange={e => onSessionChange?.(e.target.value as string | 'new')}
+                className="input-field"
+              >
+                <option value="">Aucune session</option>
+                <option value="new">➕ Créer une session rétroactive</option>
+                {sessions && sessions.map(s => {
+                  const d = new Date(s.started_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })
+                  const t = new Date(s.started_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
+                  return (
+                    <option key={s.id} value={s.id}>
+                      {d} {t} — {s.trades_count} trade{s.trades_count > 1 ? 's' : ''} · {s.pnl_session >= 0 ? '+' : ''}{s.pnl_session.toFixed(0)} $
+                    </option>
+                  )
+                })}
+              </select>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="field-label">Heure d&apos;entrée</label>
+                <input {...register('entry_time')} type="datetime-local" className="input-field font-mono text-xs" />
+              </div>
+              <div>
+                <label className="field-label">Heure de sortie</label>
+                <input {...register('exit_time')} type="datetime-local" className="input-field font-mono text-xs" />
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="section-title mb-2">AVANT — Plan</div>
 
         <div className="grid grid-cols-2 gap-4">
