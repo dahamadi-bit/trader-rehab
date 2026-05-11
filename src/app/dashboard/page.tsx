@@ -13,8 +13,8 @@
  *   - Montrer les statistiques de discipline de manière sobre
  */
 
-import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState, useEffect, useCallback } from 'react'
+import { useRouter, usePathname } from 'next/navigation'
 import { clsx } from 'clsx'
 import Navigation from '@/components/shared/Navigation'
 import { evaluateEmotionalState, getDailyQuote, TRADING_ALTERNATIVES } from '@/lib/behavioral-engine'
@@ -34,6 +34,7 @@ function getLocalDateStr(): string {
 
 export default function DashboardPage() {
   const router = useRouter()
+  const pathname = usePathname()
   const [checkin, setCheckin] = useState<DailyCheckIn | null>(null)
   const [profile, setProfile] = useState<Profile | null>(null)
   const [assessment, setAssessment] = useState<EmotionalAssessment | null>(null)
@@ -96,19 +97,44 @@ export default function DashboardPage() {
         if (!acc) {
           const fallback: TradingAccount = accountsData.find((a: TradingAccount) => a.is_default) ?? accountsData[0]
           acc = fallback
-          // PnL global du compte (30 derniers jours)
-          // PnL global = somme des sessions clôturées du compte
-          // (ne dépend pas de trades.account_id, évite les problèmes de migration)
-          const { data: closedSessions } = await supabase
-            .from('trading_sessions')
-            .select('pnl_session, consecutive_losses, ended_at')
-            .eq('user_id', user.id)
-            .eq('account_id', fallback.id)
-            .in('status', ['completed', 'force_closed'])
-            .order('ended_at', { ascending: false })
-            .limit(100)
-          const total = closedSessions?.reduce((s: number, sess: { pnl_session: number | null }) => s + (sess.pnl_session ?? 0), 0) ?? 0
-          const lastConsecLosses = closedSessions?.[0]?.consecutive_losses ?? 0
+          // ---- PnL global : sessions clôturées + trades orphelins (sans session) ----
+          // Stratégie : sessions avec account_id + trades orphelins avec account_id
+          // Fallback si la migration n'a pas été exécutée (colonne account_id absente)
+
+          const [{ data: closedSessions, error: sessErr }, { data: orphanTrades, error: tradeErr }] = await Promise.all([
+            supabase.from('trading_sessions')
+              .select('pnl_session, consecutive_losses')
+              .eq('user_id', user.id)
+              .eq('account_id', fallback.id)
+              .in('status', ['completed', 'force_closed']),
+            supabase.from('trades')
+              .select('pnl, result')
+              .eq('user_id', user.id)
+              .eq('account_id', fallback.id)
+              .is('session_id', null),
+          ])
+
+          let total = 0
+          let lastConsecLosses = 0
+
+          if (!sessErr && closedSessions) {
+            // Migration faite : somme sessions + trades orphelins
+            total += closedSessions.reduce((s: number, sess: { pnl_session: number | null }) => s + (sess.pnl_session ?? 0), 0)
+            lastConsecLosses = closedSessions[0]?.consecutive_losses ?? 0
+          }
+          if (!tradeErr && orphanTrades) {
+            // Trades manuels sans session
+            const closed = orphanTrades.filter((t: { pnl: number | null; result: string | null }) => t.result && t.result !== 'open')
+            total += closed.reduce((s: number, t: { pnl: number | null }) => s + (t.pnl ?? 0), 0)
+          }
+          if (sessErr && tradeErr) {
+            // Fallback : migration non exécutée — somme tous les trades de l'utilisateur
+            const { data: allTrades } = await supabase
+              .from('trades').select('pnl, result').eq('user_id', user.id)
+            const closed = (allTrades ?? []).filter((t: { pnl: number | null; result: string | null }) => t.result && t.result !== 'open')
+            total = closed.reduce((s: number, t: { pnl: number | null }) => s + (t.pnl ?? 0), 0)
+          }
+
           setGlobalPnl(total)
           setSessionInfo({ pnl: total, consecutiveLosses: lastConsecLosses, isActive: false })
         }
@@ -118,12 +144,7 @@ export default function DashboardPage() {
       setIsLoading(false)
     }
     loadData()
-
-    // Rafraîchir quand l'utilisateur revient sur l'onglet (ex: après ajout trade)
-    const onVisible = () => { if (document.visibilityState === 'visible') loadData() }
-    document.addEventListener('visibilitychange', onVisible)
-    return () => document.removeEventListener('visibilitychange', onVisible)
-  }, [router])
+  }, [router, pathname])
 
   if (isLoading) {
     return (
@@ -443,6 +464,7 @@ function EmotionalStateCard({ checkin, assessment, onEdit }: { checkin: DailyChe
 
 function SessionGate({ assessment }: { assessment: EmotionalAssessment }) {
   const router = useRouter()
+  const pathname = usePathname()
   const [showAlternatives, setShowAlternatives] = useState(false)
 
   if (assessment.canStartSession) {
