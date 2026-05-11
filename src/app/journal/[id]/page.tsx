@@ -23,6 +23,7 @@ export default function TradeDetailPage() {
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [editMode, setEditMode] = useState(false)
   const [isNew, setIsNew] = useState(id === 'new')
+  const [saveError, setSaveError] = useState<string | null>(null)
   const [sessions, setSessions] = useState<TradingSession[]>([])
   const [accounts, setAccounts] = useState<TradingAccount[]>([])
   const [selectedSessionId, setSelectedSessionId] = useState<string | 'new' | null>(null)
@@ -118,7 +119,8 @@ export default function TradeDetailPage() {
       // Strip fields that will be set explicitly to avoid duplicates
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { session_id: _sid, account_id: _aid, user_id: _uid2, ...cleanInsert } = insertData as Trade & { session_id: unknown; account_id: unknown; user_id: unknown }
-      const { data: created } = await supabase
+      setSaveError(null)
+      const { data: created, error: insertError } = await supabase
         .from('trades')
         .insert({
           user_id: user.id,
@@ -127,6 +129,10 @@ export default function TradeDetailPage() {
           ...cleanInsert,
         })
         .select().single()
+      if (insertError) {
+        setSaveError(`Erreur sauvegarde : ${insertError.message}`)
+        return
+      }
 
       // Recalculer métriques si session existante
       if (sessionId && selectedSessionId !== 'new') {
@@ -151,7 +157,7 @@ export default function TradeDetailPage() {
         }
       }
 
-      if (created) { setTrade(created); setIsNew(false); setEditMode(false) }
+      if (created) { router.refresh(); setTrade(created); setIsNew(false); setEditMode(false) }
     } else {
       const { data: updated } = await supabase
         .from('trades')
@@ -286,6 +292,7 @@ Analyse ce trade comportementalement. Identifie le pattern principal, ce qui a b
             handleSubmit={handleSubmit}
             onSubmit={onSubmit}
             onCancel={() => { setEditMode(false); if (isNew) router.push('/journal') }}
+            saveError={saveError}
           />
         ) : trade ? (
           <TradeView trade={trade} />
@@ -394,9 +401,10 @@ interface TradeFormProps {
   handleSubmit: UseFormHandleSubmit<Partial<Trade>>
   onSubmit: (data: Partial<Trade>) => Promise<void>
   onCancel: () => void
+  saveError?: string | null
 }
 
-function TradeForm({ trade, isNew, sessions, accounts, selectedSessionId, selectedAccountId, onSessionChange, onAccountChange, register, handleSubmit, onSubmit, onCancel }: TradeFormProps) {
+function TradeForm({ trade, isNew, sessions, accounts, selectedSessionId, selectedAccountId, onSessionChange, onAccountChange, register, handleSubmit, onSubmit, onCancel, saveError }: TradeFormProps) {
   return (
     <div className="card">
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
@@ -529,6 +537,11 @@ function TradeForm({ trade, isNew, sessions, accounts, selectedSessionId, select
         <div><label className="field-label">Notes comportementales</label>
           <textarea {...register('behavioral_notes')} rows={2} className="textarea-field" /></div>
 
+        {isNew && saveError && (
+          <div className="text-xs text-[#e74c3c] bg-[#e74c3c]/10 border border-[#e74c3c]/20 rounded p-3">
+            {saveError}
+          </div>
+        )}
         <div className="flex gap-3">
           <button type="submit" className="btn-primary flex-1">Enregistrer</button>
           <button type="button" onClick={onCancel} className="btn-secondary flex-1">Annuler</button>

@@ -489,7 +489,7 @@ export default function SessionPage() {
                 const newCount = session.tradesCount + 1
                 const maxTrades = selectedAccount?.max_trades_per_session ?? 2
 
-                await supabase.from('trades').insert({
+                const { error: tradeInsertError } = await supabase.from('trades').insert({
                   user_id: user.id,
                   session_id: session.sessionId,
                   account_id: selectedAccount?.id ?? null,
@@ -497,6 +497,11 @@ export default function SessionPage() {
                   session_type: selectedAccount?.account_type ?? 'simulation',
                   result: 'open',
                 })
+                if (tradeInsertError) {
+                  setBlockMessage(`Erreur d'enregistrement du trade : ${tradeInsertError.message}. Vérifiez que la migration SQL a été exécutée dans Supabase.`)
+                  setPhase('idle')
+                  return
+                }
 
                 // Mettre à jour trades_count en base
                 await supabase.from('trading_sessions').update({

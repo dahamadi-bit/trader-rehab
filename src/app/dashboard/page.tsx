@@ -97,27 +97,20 @@ export default function DashboardPage() {
           const fallback: TradingAccount = accountsData.find((a: TradingAccount) => a.is_default) ?? accountsData[0]
           acc = fallback
           // PnL global du compte (30 derniers jours)
-          const { data: recentTrades } = await supabase
-            .from('trades')
-            .select('pnl, result')
-            .eq('user_id', user.id)
-            .eq('account_id', fallback.id)
-          // Exclure 'open' et NULL en JS (SQL NULL != 'open' = NULL = exclu par .neq)
-          const closedTrades = recentTrades?.filter((t: { pnl: number | null; result: string | null }) =>
-            t.result && t.result !== 'open'
-          ) ?? []
-          const total = closedTrades.reduce((s: number, t: { pnl: number | null }) => s + (t.pnl ?? 0), 0)
-          setGlobalPnl(total)
-          // Pertes consécutives depuis la dernière session fermée
-          const { data: lastSession } = await supabase
+          // PnL global = somme des sessions clôturées du compte
+          // (ne dépend pas de trades.account_id, évite les problèmes de migration)
+          const { data: closedSessions } = await supabase
             .from('trading_sessions')
-            .select('consecutive_losses')
+            .select('pnl_session, consecutive_losses, ended_at')
             .eq('user_id', user.id)
             .eq('account_id', fallback.id)
-            .order('created_at', { ascending: false })
-            .limit(1)
-            .maybeSingle()
-          setSessionInfo({ pnl: total, consecutiveLosses: lastSession?.consecutive_losses ?? 0, isActive: false })
+            .in('status', ['completed', 'force_closed'])
+            .order('ended_at', { ascending: false })
+            .limit(100)
+          const total = closedSessions?.reduce((s: number, sess: { pnl_session: number | null }) => s + (sess.pnl_session ?? 0), 0) ?? 0
+          const lastConsecLosses = closedSessions?.[0]?.consecutive_losses ?? 0
+          setGlobalPnl(total)
+          setSessionInfo({ pnl: total, consecutiveLosses: lastConsecLosses, isActive: false })
         }
         setActiveAccount(acc)
       }

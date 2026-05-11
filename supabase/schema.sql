@@ -112,7 +112,13 @@ CREATE TABLE IF NOT EXISTS trading_sessions (
   checkin_id        UUID REFERENCES daily_checkins(id),
   emotional_state_open TEXT,   -- snapshot JSON des émotions
 
-  notes             TEXT
+  notes             TEXT,
+
+  -- Compte associé (prop firm, personnel, simulation)
+  account_id        UUID REFERENCES accounts(id) ON DELETE SET NULL,
+
+  -- Session rétroactive (ajout manuel hors session)
+  is_retroactive    BOOLEAN NOT NULL DEFAULT false
 );
 
 -- ============================================================
@@ -177,7 +183,14 @@ CREATE TABLE IF NOT EXISTS trades (
 
   -- IA
   ai_analysis         TEXT,   -- Retour du coach IA
-  ai_analyzed_at      TIMESTAMPTZ
+  ai_analyzed_at      TIMESTAMPTZ,
+
+  -- Horaires réels du trade (ajout manuel)
+  entry_time          TIMESTAMPTZ,
+  exit_time           TIMESTAMPTZ,
+
+  -- Compte associé
+  account_id          UUID REFERENCES accounts(id) ON DELETE SET NULL
 );
 
 -- ============================================================
@@ -353,13 +366,19 @@ ALTER TABLE behavioral_events      ENABLE ROW LEVEL SECURITY;
 ALTER TABLE routine_logs           ENABLE ROW LEVEL SECURITY;
 ALTER TABLE capital_unlock_progress ENABLE ROW LEVEL SECURITY;
 
--- Politique générique : utilisateur voit uniquement ses données
+-- Politique pour profiles (id = auth.uid())
+CREATE POLICY "Users see own profile" ON profiles
+  FOR ALL TO authenticated
+  USING (id = auth.uid())
+  WITH CHECK (id = auth.uid());
+
+-- Politique générique pour les autres tables (user_id = auth.uid())
 DO $$
 DECLARE
   t TEXT;
 BEGIN
   FOREACH t IN ARRAY ARRAY[
-    'profiles','daily_checkins','trading_sessions','trades',
+    'daily_checkins','trading_sessions','trades',
     'playbook_setups','weekly_reviews','behavioral_events',
     'routine_logs','capital_unlock_progress'
   ] LOOP
@@ -372,13 +391,6 @@ BEGIN
     );
   END LOOP;
 END $$;
-
--- Exception : profiles — la colonne id = user_id
-DROP POLICY IF EXISTS "Users see own data" ON profiles;
-CREATE POLICY "Users see own profile" ON profiles
-  FOR ALL TO authenticated
-  USING (id = auth.uid())
-  WITH CHECK (id = auth.uid());
 
 -- ============================================================
 -- TRIGGERS — Automatisations
