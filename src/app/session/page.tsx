@@ -579,6 +579,13 @@ export default function SessionPage() {
                 }).eq('id', openTrades[0].id)
               }
 
+              // Mise à jour du solde du compte
+              if (selectedAccount) {
+                const newBalance = selectedAccount.account_balance + pnlAmount
+                await supabase.from('accounts').update({ account_balance: newBalance }).eq('id', selectedAccount.id)
+                setSelectedAccount(prev => prev ? { ...prev, account_balance: newBalance } : null)
+              }
+
               if (newConsecLosses >= 2) {
                 closeSession('max_losses')
               } else {
@@ -873,7 +880,10 @@ function ActiveTradePanel({
 
   function confirmClose() {
     if (!pendingResult) return
-    const pnlValue = parseFloat(pnlInput) || 0
+    let pnlValue = parseFloat(pnlInput) || 0
+    // Auto-signe : perte → négatif, gain → positif (même si l'utilisateur oublie le -)
+    if (pendingResult === 'loss' && pnlValue > 0) pnlValue = -pnlValue
+    if (pendingResult === 'win'  && pnlValue < 0) pnlValue = Math.abs(pnlValue)
     onTradeClose(pendingResult, pnlValue)
   }
 

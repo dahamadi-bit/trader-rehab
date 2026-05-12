@@ -119,6 +119,10 @@ export default function TradeDetailPage() {
       // Strip fields that will be set explicitly to avoid duplicates
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { session_id: _sid, account_id: _aid, user_id: _uid2, ...cleanInsert } = insertData as Trade & { session_id: unknown; account_id: unknown; user_id: unknown }
+      // Auto-correction du signe PnL selon le résultat
+      if (cleanInsert.result === 'loss' && typeof cleanInsert.pnl === 'number' && cleanInsert.pnl > 0) cleanInsert.pnl = -cleanInsert.pnl
+      if (cleanInsert.result === 'win'  && typeof cleanInsert.pnl === 'number' && cleanInsert.pnl < 0) cleanInsert.pnl = Math.abs(cleanInsert.pnl)
+
       setSaveError(null)
       const { data: created, error: insertError } = await supabase
         .from('trades')
@@ -157,14 +161,47 @@ export default function TradeDetailPage() {
         }
       }
 
-      if (created) { router.refresh(); setTrade(created); setIsNew(false); setEditMode(false) }
+      if (created) {
+        // Mise à jour du solde du compte si trade clôturé
+        if (selectedAccountId && created.pnl !== null && created.result && created.result !== 'open') {
+          const { data: acc } = await supabase.from('accounts').select('account_balance').eq('id', selectedAccountId).single()
+          if (acc) {
+            await supabase.from('accounts').update({ account_balance: acc.account_balance + created.pnl }).eq('id', selectedAccountId)
+          }
+        }
+        router.refresh(); setTrade(created); setIsNew(false); setEditMode(false)
+      }
     } else {
+      // Edit : récupérer l'ancien PnL pour calculer le delta
+      const oldPnl = trade?.pnl ?? 0
+      const oldResult = trade?.result
+
+      // Auto-correction signe PnL sur modification
+      const editData = { ...data }
+      if (editData.result === 'loss' && typeof editData.pnl === 'number' && editData.pnl > 0) editData.pnl = -editData.pnl
+      if (editData.result === 'win'  && typeof editData.pnl === 'number' && editData.pnl < 0) editData.pnl = Math.abs(editData.pnl)
+
       const { data: updated } = await supabase
         .from('trades')
-        .update(data)
+        .update(editData)
         .eq('id', id)
         .select().single()
-      if (updated) { setTrade(updated); setEditMode(false) }
+      if (updated) {
+        // Ajuster le solde du compte si le PnL a changé
+        const accId = updated.account_id
+        if (accId && updated.result && updated.result !== 'open') {
+          const newPnl = updated.pnl ?? 0
+          const wasClosedBefore = oldResult && oldResult !== 'open'
+          const delta = wasClosedBefore ? newPnl - oldPnl : newPnl
+          if (delta !== 0) {
+            const { data: acc } = await supabase.from('accounts').select('account_balance').eq('id', accId).single()
+            if (acc) {
+              await supabase.from('accounts').update({ account_balance: acc.account_balance + delta }).eq('id', accId)
+            }
+          }
+        }
+        setTrade(updated); setEditMode(false)
+      }
     }
   }
 
