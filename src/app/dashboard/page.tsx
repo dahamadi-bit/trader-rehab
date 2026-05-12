@@ -13,7 +13,7 @@
  *   - Montrer les statistiques de discipline de manière sobre
  */
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import { clsx } from 'clsx'
 import Navigation from '@/components/shared/Navigation'
@@ -44,6 +44,8 @@ export default function DashboardPage() {
   const [activeAccount, setActiveAccount] = useState<TradingAccount | null>(null)
   const [sessionInfo, setSessionInfo] = useState<{ pnl: number; consecutiveLosses: number; isActive: boolean } | null>(null)
   const [globalPnl, setGlobalPnl] = useState<number>(0)
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const quote = getDailyQuote()
 
@@ -92,6 +94,7 @@ export default function DashboardPage() {
         let acc: TradingAccount | null = null
         if (activeSession) {
           acc = accountsData.find((a: TradingAccount) => a.id === activeSession.account_id) ?? null
+          setActiveSessionId(activeSession.id)
           setSessionInfo({ pnl: activeSession.pnl_session ?? 0, consecutiveLosses: activeSession.consecutive_losses ?? 0, isActive: true })
         }
         if (!acc) {
@@ -133,6 +136,40 @@ export default function DashboardPage() {
     }
     loadData()
   }, [router, pathname])
+
+  // Polling live — rafraîchit PnL session + solde compte toutes les 20s quand session active
+  useEffect(() => {
+    if (!activeSessionId) {
+      if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null }
+      return
+    }
+    async function refreshLive() {
+      const { createClient } = await import('@/lib/supabase')
+      const supabase = createClient()
+      const [{ data: sess }, { data: accs }] = await Promise.all([
+        supabase.from('trading_sessions').select('pnl_session, consecutive_losses, status').eq('id', activeSessionId!).single(),
+        supabase.from('accounts').select('id, account_balance').eq('is_active', true),
+      ])
+      if (sess) {
+        if (sess.status !== 'active') {
+          setActiveSessionId(null)
+          setSessionInfo(prev => prev ? { ...prev, isActive: false } : null)
+          return
+        }
+        setSessionInfo({ pnl: sess.pnl_session ?? 0, consecutiveLosses: sess.consecutive_losses ?? 0, isActive: true })
+      }
+      if (accs) {
+        setActiveAccount(prev => {
+          if (!prev) return prev
+          const updated = (accs as Array<{ id: string; account_balance: number }>).find(a => a.id === prev.id)
+          return updated ? { ...prev, account_balance: updated.account_balance } : prev
+        })
+      }
+    }
+    refreshLive()
+    pollRef.current = setInterval(refreshLive, 20000)
+    return () => { if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null } }
+  }, [activeSessionId])
 
   if (isLoading) {
     return (
