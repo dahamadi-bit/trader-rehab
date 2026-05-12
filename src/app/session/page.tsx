@@ -542,10 +542,11 @@ export default function SessionPage() {
           <ActiveTradePanel
             onTradeClose={async (result, pnlAmount) => {
               const isLoss = result === 'loss'
+              // Calcul depuis l'état courant (closure valide car re-render à chaque phase)
               const newConsecLosses = isLoss ? session.consecutiveLosses + 1 : 0
               const newPnl = session.pnl + pnlAmount
 
-              // Mise à jour état local
+              // 1. Mise à jour état local IMMÉDIATE (avant les awaits)
               setSession(prev => prev ? {
                 ...prev,
                 consecutiveLosses: newConsecLosses,
@@ -554,16 +555,19 @@ export default function SessionPage() {
                 cooldownEndsAt: result === 'win' ? new Date(Date.now() + 30 * 60000) : null,
               } : null)
 
-              // Mise à jour Supabase — session
+              // 2. Persistance Supabase
               const { createClient } = await import('@/lib/supabase')
               const supabase = createClient()
 
-              await supabase.from('trading_sessions').update({
-                pnl_session: newPnl,
-                consecutive_losses: newConsecLosses,
-              }).eq('id', session.sessionId)
+              const [{ error: sessErr }] = await Promise.all([
+                supabase.from('trading_sessions').update({
+                  pnl_session: newPnl,
+                  consecutive_losses: newConsecLosses,
+                }).eq('id', session.sessionId),
+              ])
+              if (sessErr) console.error('[session] update error:', sessErr.message)
 
-              // Mise à jour du trade ouvert avec résultat + PnL
+              // 3. Fermer le trade ouvert avec résultat + PnL signé
               const { data: openTrades } = await supabase
                 .from('trades')
                 .select('id')
@@ -579,14 +583,22 @@ export default function SessionPage() {
                 }).eq('id', openTrades[0].id)
               }
 
-              // Mise à jour du solde du compte
+              // 4. Mise à jour du solde du compte
               if (selectedAccount) {
                 const newBalance = selectedAccount.account_balance + pnlAmount
-                await supabase.from('accounts').update({ account_balance: newBalance }).eq('id', selectedAccount.id)
-                setSelectedAccount(prev => prev ? { ...prev, account_balance: newBalance } : null)
+                const { error: accErr } = await supabase
+                  .from('accounts')
+                  .update({ account_balance: newBalance })
+                  .eq('id', selectedAccount.id)
+                if (!accErr) {
+                  setSelectedAccount(prev => prev ? { ...prev, account_balance: newBalance } : null)
+                } else {
+                  console.error('[account] balance update error:', accErr.message)
+                }
               }
 
-              if (newConsecLosses >= 2) {
+              // 5. Transition de phase
+              if (newConsecLosses >= (selectedAccount?.max_consecutive_losses ?? 2)) {
                 closeSession('max_losses')
               } else {
                 setPhase('idle')
