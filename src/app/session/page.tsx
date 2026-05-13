@@ -23,7 +23,7 @@ import Navigation from '@/components/shared/Navigation'
 import { analyzeRevengePatterns, getInterventionMessage } from '@/lib/revenge-detection'
 import { calculatePositionSize, canOpenTrade } from '@/lib/behavioral-engine'
 import { logBehavioralEvent, refreshDisciplineScore } from '@/lib/supabase'
-import type { PlaybookSetup, ActiveSessionState, RevengeDetectionResult, TradingAccount } from '@/types'
+import type { PlaybookSetup, ActiveSessionState, RevengeDetectionResult, TradingAccount, TradeEmotion } from '@/types'
 
 // ============================================================
 // SCHÉMA VALIDATION — Formulaire pré-trade
@@ -33,13 +33,12 @@ const PreTradeSchema = z.object({
   symbol:              z.string().min(1, 'Instrument requis'),
   direction:           z.enum(['long', 'short']),
   playbook_setup_id:   z.string().min(1, 'Setup requis — trade non documenté interdit'),
-  market_context:      z.string().min(30, 'Contexte marché requis (min. 30 caractères)'),
+  market_context:      z.string().optional(),
   entry_price:         z.number().positive('Prix entrée requis'),
   stop_loss:           z.number().positive('Stop loss requis'),
   take_profit_1:       z.number().positive('TP1 requis'),
   risk_amount:         z.number().positive('Risque requis'),
-  emotion_before:      z.enum(['calm', 'excited', 'fearful', 'uncertain', 'frustrated', 'overconfident']),
-  plan_justification:  z.string().min(40, 'Justification requise (min. 40 caractères) : "Ce trade respecte mon plan parce que…"'),
+  plan_justification:  z.string().optional(),
 })
 
 type PreTradeFormData = z.infer<typeof PreTradeSchema>
@@ -48,7 +47,7 @@ type PreTradeFormData = z.infer<typeof PreTradeSchema>
 // ÉTATS DE LA SESSION
 // ============================================================
 
-type SessionPhase = 'loading' | 'blocked' | 'account_selection' | 'idle' | 'pre_trade' | 'active_trade' | 'cooldown' | 'ended'
+type SessionPhase = 'loading' | 'blocked' | 'account_selection' | 'idle' | 'emotion_pick' | 'pre_trade' | 'active_trade' | 'cooldown' | 'ended'
 
 // ============================================================
 // COMPOSANT PRINCIPAL
@@ -65,6 +64,7 @@ export default function SessionPage() {
   const [cooldownRemaining, setCooldownRemaining] = useState(0)
   const [accounts, setAccounts] = useState<TradingAccount[]>([])
   const [selectedAccount, setSelectedAccount] = useState<TradingAccount | null>(null)
+  const [quickEmotion, setQuickEmotion] = useState<{ emotion: TradeEmotion; confidence: number } | null>(null)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const startTimer = useCallback(() => {
@@ -134,6 +134,36 @@ export default function SessionPage() {
     const supabase = createClient()
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
+
+    // Limites journalières cross-sessions
+    const todayStart = new Date()
+    todayStart.setHours(0, 0, 0, 0)
+    const { data: todayTrades } = await supabase
+      .from('trades')
+      .select('result')
+      .eq('user_id', user.id)
+      .eq('account_id', account.id)
+      .neq('result', 'open')
+      .gte('created_at', todayStart.toISOString())
+    if (todayTrades && todayTrades.length > 0) {
+      const maxDaily = (account.max_trades_per_session ?? 2) * 2
+      if (todayTrades.length >= maxDaily) {
+        setBlockMessage(`Limite journalière atteinte (${todayTrades.length} trades aujourd'hui). Reprenez demain.`)
+        setPhase('blocked')
+        return
+      }
+      // Pertes consécutives du jour (depuis la fin)
+      let consecToday = 0
+      for (let i = todayTrades.length - 1; i >= 0; i--) {
+        if (todayTrades[i].result === 'loss') consecToday++
+        else break
+      }
+      if (consecToday >= (account.max_consecutive_losses ?? 2)) {
+        setBlockMessage(`Stop journalier : ${consecToday} pertes consécutives aujourd'hui. Revenez demain.`)
+        setPhase('blocked')
+        return
+      }
+    }
 
     // Chercher une session active - avec account_id si disponible
     let { data: activeSession, error: findSessErr } = await supabase
@@ -455,7 +485,7 @@ export default function SessionPage() {
               onClick={() => {
                 const check = canOpenTrade(session, selectedAccount ?? undefined)
                 if (check.allowed) {
-                  setPhase('pre_trade')
+                  setPhase('emotion_pick')
                 } else {
                   setBlockMessage(check.reason ?? '')
                 }
@@ -469,6 +499,17 @@ export default function SessionPage() {
               <p className="text-xs text-[#e67e22] mt-2">{blockMessage}</p>
             )}
           </>
+        )}
+
+        {/* Phase : émotion rapide */}
+        {phase === 'emotion_pick' && (
+          <EmotionQuickPick
+            onSelect={(emotion, confidence) => {
+              setQuickEmotion({ emotion, confidence })
+              setPhase('pre_trade')
+            }}
+            onCancel={() => setPhase('idle')}
+          />
         )}
 
         {/* Phase : formulaire pré-trade */}
@@ -489,6 +530,7 @@ export default function SessionPage() {
               playbooks={playbooks}
               accountBalance={selectedAccount?.account_balance ?? 10000}
               maxRiskPercent={selectedAccount?.max_risk_per_trade ?? 0.005}
+              preEmotion={quickEmotion}
               onRevengeDetected={setRevengeAlert}
               onSubmit={async (data) => {
                 const { createClient } = await import('@/lib/supabase')
@@ -504,6 +546,7 @@ export default function SessionPage() {
                   session_id: session.sessionId,
                   account_id: selectedAccount?.id ?? null,
                   ...data,
+                  emotion_before: quickEmotion?.emotion ?? null,
                   session_type: selectedAccount?.account_type ?? 'simulation',
                   result: 'open',
                 }
@@ -641,16 +684,17 @@ function SessionStatus({ session, maxTrades, maxLosses }: { session: ActiveSessi
 // ============================================================
 
 interface PreTradeFormProps {
-  session: ActiveSessionState
+  session?: ActiveSessionState
   playbooks: PlaybookSetup[]
   accountBalance: number
   maxRiskPercent: number
+  preEmotion: { emotion: TradeEmotion; confidence: number } | null
   onRevengeDetected: (result: RevengeDetectionResult) => void
   onSubmit: (data: PreTradeFormData) => Promise<void>
   onCancel: () => void
 }
 
-function PreTradeForm({ playbooks, accountBalance, maxRiskPercent, onRevengeDetected, onSubmit, onCancel }: Omit<PreTradeFormProps, 'session'>) {
+function PreTradeForm({ playbooks, accountBalance, maxRiskPercent, preEmotion, onRevengeDetected, onSubmit, onCancel }: Omit<PreTradeFormProps, 'session'>) {
   const { register, handleSubmit, watch, setValue, formState: { errors, isSubmitting } } = useForm<PreTradeFormData>({
     resolver: zodResolver(PreTradeSchema),
   })
@@ -658,6 +702,7 @@ function PreTradeForm({ playbooks, accountBalance, maxRiskPercent, onRevengeDete
   const [riskCalc, setRiskCalc] = useState<{ riskAmount: number; stopPips: number; lotSize: number } | null>(null)
   const [justificationAnalysis, setJustificationAnalysis] = useState<RevengeDetectionResult | null>(null)
   const [confirmVisible, setConfirmVisible] = useState(false)
+  const [showOptional, setShowOptional] = useState(false)
 
   // Calcul automatique du risque
   const entryPrice = watch('entry_price')
@@ -678,7 +723,7 @@ function PreTradeForm({ playbooks, accountBalance, maxRiskPercent, onRevengeDete
   // Analyse revenge en temps réel sur la justification
   const justification = watch('plan_justification')
   useEffect(() => {
-    if ((justification?.length ?? 0) > 20) {
+    if ((justification?.length ?? 0) > 20 && justification) {
       const result = analyzeRevengePatterns(justification)
       setJustificationAnalysis(result)
       if (result.detected) onRevengeDetected(result)
@@ -696,8 +741,23 @@ function PreTradeForm({ playbooks, accountBalance, maxRiskPercent, onRevengeDete
 
   return (
     <div className="card animate-slide-up">
-      <div className="section-title mb-5">Plan du trade — tous les champs sont obligatoires</div>
+      <div className="section-title mb-5">Plan du trade</div>
 
+      {preEmotion && (
+        <div className="flex items-center gap-3 mb-4 px-3 py-2 bg-[#1a1a1a] rounded border border-[#2a2a2a]">
+          <span className="text-xxs text-neutral-600 uppercase tracking-wider">Émotion</span>
+          <span className="text-xs font-medium text-neutral-300">
+            {preEmotion.emotion === 'calm' ? '😌 Calme' :
+             preEmotion.emotion === 'excited' ? '⚡ Excité(e)' :
+             preEmotion.emotion === 'fearful' ? '😰 Apeuré(e)' :
+             preEmotion.emotion === 'uncertain' ? '🤔 Incertain(e)' :
+             preEmotion.emotion === 'frustrated' ? '😤 Frustré(e)' : '🔥 Surconfiant(e)'}
+          </span>
+          <span className="ml-auto text-xxs text-neutral-600">
+            {'●'.repeat(preEmotion.confidence)}{'○'.repeat(5 - preEmotion.confidence)}
+          </span>
+        </div>
+      )}
       <form onSubmit={handleSubmit(handleFormSubmit)} className="space-y-5">
         {/* Instrument + Direction */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -768,55 +828,47 @@ function PreTradeForm({ playbooks, accountBalance, maxRiskPercent, onRevengeDete
           </div>
         )}
 
-        {/* Contexte marché */}
+        {/* Contexte & justification — optionnel, collapsible */}
         <div>
-          <label className="field-label">Contexte marché</label>
-          <textarea
-            {...register('market_context')}
-            rows={2}
-            placeholder="Structure H4/H1, niveaux clés, biais directionnel…"
-            className="textarea-field"
-          />
-          {errors.market_context && <p className="text-xxs text-[#e74c3c] mt-1">{errors.market_context.message}</p>}
-        </div>
-
-        {/* Justification — zone de détection revenge */}
-        <div>
-          <label className="field-label">
-            Justification — &ldquo;Ce trade respecte mon plan parce que…&rdquo;
-          </label>
-          <textarea
-            {...register('plan_justification')}
-            rows={3}
-            placeholder="Ce trade respecte mon plan parce que…"
-            className={clsx(
-              'textarea-field',
-              justificationAnalysis?.detected && 'border-[#e74c3c]/60 bg-[#e74c3c]/5'
-            )}
-          />
-          {errors.plan_justification && (
-            <p className="text-xxs text-[#e74c3c] mt-1">{errors.plan_justification.message}</p>
+          <button
+            type="button"
+            onClick={() => setShowOptional(v => !v)}
+            className="text-xxs text-neutral-500 hover:text-neutral-300 transition-colors flex items-center gap-1"
+          >
+            {showOptional ? '▲' : '▼'} Contexte &amp; justification (optionnel)
+          </button>
+          {showOptional && (
+            <div className="mt-3 space-y-4">
+              <div>
+                <label className="field-label">Contexte marché</label>
+                <textarea
+                  {...register('market_context')}
+                  rows={2}
+                  placeholder="Structure H4/H1, niveaux clés, biais directionnel…"
+                  className="textarea-field"
+                />
+              </div>
+              <div>
+                <label className="field-label">
+                  Justification — &ldquo;Ce trade respecte mon plan parce que…&rdquo;
+                </label>
+                <textarea
+                  {...register('plan_justification')}
+                  rows={3}
+                  placeholder="Ce trade respecte mon plan parce que…"
+                  className={clsx(
+                    'textarea-field',
+                    justificationAnalysis?.detected && 'border-[#e74c3c]/60 bg-[#e74c3c]/5'
+                  )}
+                />
+                {justificationAnalysis && justificationAnalysis.riskScore > 20 && !justificationAnalysis.detected && (
+                  <p className="text-xxs text-[#e67e22] mt-1">
+                    ⚠ Formulation à risque : {justificationAnalysis.flags.join(', ')}
+                  </p>
+                )}
+              </div>
+            </div>
           )}
-          {justificationAnalysis && justificationAnalysis.riskScore > 20 && !justificationAnalysis.detected && (
-            <p className="text-xxs text-[#e67e22] mt-1">
-              ⚠ Formulation à risque détectée : {justificationAnalysis.flags.join(', ')}
-            </p>
-          )}
-        </div>
-
-        {/* Émotion avant */}
-        <div>
-          <label className="field-label">Émotion avant l&rsquo;entrée</label>
-          <select {...register('emotion_before')} className="input-field">
-            <option value="">—</option>
-            <option value="calm">Calme</option>
-            <option value="uncertain">Incertain(e)</option>
-            <option value="excited">Excité(e)</option>
-            <option value="fearful">Apeuré(e)</option>
-            <option value="frustrated">Frustré(e)</option>
-            <option value="overconfident">Surconfiant(e)</option>
-          </select>
-          {errors.emotion_before && <p className="text-xxs text-[#e74c3c] mt-1">{errors.emotion_before.message}</p>}
         </div>
 
         {/* Friction finale */}
@@ -971,6 +1023,115 @@ function ActiveTradePanel({
       <p className="text-xxs text-neutral-700 mt-4">
         Après clôture, complétez l&rsquo;analyse comportementale dans le journal.
       </p>
+    </div>
+  )
+}
+
+// ============================================================
+// EMOTION QUICK-PICK
+// ============================================================
+
+const EMOTIONS: { value: TradeEmotion; label: string; emoji: string; color: string }[] = [
+  { value: 'calm',          label: 'Calme',          emoji: '😌', color: '#27ae60' },
+  { value: 'uncertain',     label: 'Incertain(e)',    emoji: '🤔', color: '#f39c12' },
+  { value: 'excited',       label: 'Excité(e)',       emoji: '⚡', color: '#e67e22' },
+  { value: 'fearful',       label: 'Apeuré(e)',       emoji: '😰', color: '#e74c3c' },
+  { value: 'frustrated',    label: 'Frustré(e)',      emoji: '😤', color: '#c0392b' },
+  { value: 'overconfident', label: 'Surconfiant(e)',  emoji: '🔥', color: '#8e44ad' },
+]
+
+function EmotionQuickPick({
+  onSelect,
+  onCancel,
+}: {
+  onSelect: (emotion: TradeEmotion, confidence: number) => void
+  onCancel: () => void
+}) {
+  const [selected, setSelected] = useState<TradeEmotion | null>(null)
+  const [confidence, setConfidence] = useState(3)
+  const chosenEmotion = EMOTIONS.find(e => e.value === selected)
+
+  return (
+    <div className="card animate-slide-up">
+      <div className="section-title mb-1">Comment tu te sens ?</div>
+      <p className="text-xxs text-neutral-600 mb-5">
+        État émotionnel avant d&rsquo;entrer — 5 secondes, pas plus.
+      </p>
+
+      <div className="grid grid-cols-2 gap-3 mb-6">
+        {EMOTIONS.map(({ value, label, emoji, color }) => (
+          <button
+            key={value}
+            type="button"
+            onClick={() => setSelected(value)}
+            style={{
+              padding: '14px 12px',
+              borderRadius: '8px',
+              border: selected === value ? `2px solid ${color}` : '1px solid #2a2a2a',
+              background: selected === value ? `${color}22` : '#1a1a1a',
+              cursor: 'pointer',
+              transition: 'all 0.15s',
+              textAlign: 'center' as const,
+            }}
+          >
+            <div style={{ fontSize: '26px', marginBottom: '4px' }}>{emoji}</div>
+            <div style={{
+              fontSize: '12px',
+              color: selected === value ? color : '#5a5a5a',
+              fontWeight: selected === value ? 600 : 400,
+            }}>
+              {label}
+            </div>
+          </button>
+        ))}
+      </div>
+
+      {selected && (
+        <div className="mb-6">
+          <div className="text-xxs text-neutral-600 uppercase tracking-wider mb-3">
+            Confiance dans cette lecture
+          </div>
+          <div className="flex items-center gap-2">
+            {[1, 2, 3, 4, 5].map(dot => (
+              <button
+                key={dot}
+                type="button"
+                onClick={() => setConfidence(dot)}
+                style={{
+                  width: '38px', height: '38px', borderRadius: '50%',
+                  border: `2px solid ${dot <= confidence ? (chosenEmotion?.color ?? '#e8e8e8') : '#2a2a2a'}`,
+                  background: dot <= confidence ? (chosenEmotion?.color ?? '#e8e8e8') + '33' : '#1a1a1a',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s',
+                  fontSize: '13px',
+                  color: dot <= confidence ? (chosenEmotion?.color ?? '#e8e8e8') : '#4a4a4a',
+                  fontWeight: 600,
+                }}
+              >
+                {dot}
+              </button>
+            ))}
+            <span className="text-xxs text-neutral-500 ml-2">
+              {confidence === 1 ? 'Pas sûr' : confidence === 2 ? 'Vague' : confidence === 3 ? 'Assez clair' : confidence === 4 ? 'Clair' : 'Très clair'}
+            </span>
+          </div>
+        </div>
+      )}
+
+      <div className="flex gap-3">
+        <button
+          type="button"
+          disabled={!selected}
+          onClick={() => selected && onSelect(selected, confidence)}
+          className="btn-primary flex-1"
+          style={{ opacity: selected ? 1 : 0.45 }}
+        >
+          Continuer →
+        </button>
+        <button type="button" onClick={onCancel} className="btn-secondary">
+          Annuler
+        </button>
+      </div>
     </div>
   )
 }

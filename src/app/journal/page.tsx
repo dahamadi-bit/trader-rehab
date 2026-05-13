@@ -86,9 +86,14 @@ export default function JournalPage() {
         {/* Header */}
         <div className="flex items-center justify-between">
           <h1 className="text-base font-medium text-neutral-200">Journal de trading</h1>
-          <Link href="/journal/new" className="btn-primary text-xs">
-            + Ajouter trade
-          </Link>
+          <div className="flex items-center gap-2">
+            <Link href="/journal/import" className="btn-secondary text-xs">
+              ↑ Import CSV
+            </Link>
+            <Link href="/journal/new" className="btn-primary text-xs">
+              + Ajouter trade
+            </Link>
+          </div>
         </div>
 
         {/* Onglets */}
