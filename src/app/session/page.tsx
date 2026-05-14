@@ -1135,3 +1135,9 @@ function EmotionQuickPick({
     </div>
   )
 }
+    </div>
+  )
+}
+    </div>
+  )
+}
