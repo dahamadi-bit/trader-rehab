@@ -167,6 +167,31 @@ export interface Trade {
   behavioral_notes: string | null
   screenshot_after_url: string | null
 
+  // Challenge 2: Post-trade emotion & reflection
+  emotion_after: TradeEmotion | null
+  emotion_after_note: string | null
+  thesis_correct: 'yes' | 'partially' | 'no' | null
+  reflection_note: string | null
+  position_size_percent: number | null
+  sizing_vs_emotion_flag: boolean | null
+
+  // Challenge 2: Behavioral signals & control flags
+  control_loss_detected: boolean
+  revenge_trade_flag: boolean
+  emotion_risk_flag: boolean
+  three_trades_one_hour: boolean
+  signal_count: number
+
+  // Challenge 2: Daily limit tracking
+  daily_pnl_at_entry: number | null
+  account_balance_at_entry: number | null
+  pnl_hidden: boolean
+  hard_stop_triggered: string | null
+
+  // Challenge 2: Detox phase tracking
+  detox_phase: number | null
+  long_trades_count_week: number | null
+
   discipline_score_impact: number
   revenge_flags: string[]
   ai_analysis: string | null
