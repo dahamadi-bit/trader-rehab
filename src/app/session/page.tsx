@@ -23,6 +23,10 @@ import Navigation from '@/components/shared/Navigation'
 import { analyzeRevengePatterns, getInterventionMessage } from '@/lib/revenge-detection'
 import { calculatePositionSize, canOpenTrade } from '@/lib/behavioral-engine'
 import { logBehavioralEvent, refreshDisciplineScore } from '@/lib/supabase'
+import { checkHardStops, formatHardStopBanner } from '@/lib/hard-stops'
+import { checkTwoConsecutiveLosses } from '@/lib/two-loss-blocker'
+import { detectTradesPerHour, isInMandatoryPause, getRemainingPauseTime, formatPauseTimer } from '@/lib/trades-per-hour'
+import { isEmotionInIdealRange, getEmotionWarning } from '@/lib/emotion-phrases'
 import type { PlaybookSetup, ActiveSessionState, RevengeDetectionResult, TradingAccount, TradeEmotion } from '@/types'
 
 // ============================================================
@@ -65,7 +69,11 @@ export default function SessionPage() {
   const [accounts, setAccounts] = useState<TradingAccount[]>([])
   const [selectedAccount, setSelectedAccount] = useState<TradingAccount | null>(null)
   const [quickEmotion, setQuickEmotion] = useState<{ emotion: TradeEmotion; confidence: number } | null>(null)
+  const [hardStopBanner, setHardStopBanner] = useState<{ text: string; remaining: number } | null>(null)
+  const [mandatoryPauseEndsAt, setMandatoryPauseEndsAt] = useState<Date | null>(null)
+  const [pauseTimerRemaining, setPauseTimerRemaining] = useState(0)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const pauseTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const startTimer = useCallback(() => {
     timerRef.current = setInterval(() => {
@@ -163,6 +171,22 @@ export default function SessionPage() {
         setPhase('blocked')
         return
       }
+    }
+
+    // Challenge 2: Hard stops (−1% daily, +2% daily, −2.5% weekly)
+    const today = new Date().toISOString().split('T')[0]
+    const hardStops = await checkHardStops(supabase, account.id, today)
+    if (!hardStops.canTrade) {
+      setBlockMessage(hardStops.reason ?? 'Hard stop triggered')
+      setPhase('blocked')
+      return
+    }
+    // Show banner with daily remaining
+    if (hardStops.dailyRemaining > 0) {
+      setHardStopBanner({
+        text: formatHardStopBanner(hardStops.dailyPnl, hardStops.dailyRemaining, hardStops.accountBalance),
+        remaining: hardStops.dailyRemaining,
+      })
     }
 
     // Chercher une session active - avec account_id si disponible
@@ -481,8 +505,31 @@ export default function SessionPage() {
         {session && phase === 'idle' && (
           <>
             <SessionStatus session={session} maxTrades={selectedAccount?.max_trades_per_session ?? 2} maxLosses={selectedAccount?.max_consecutive_losses ?? 2} />
+
+            {/* Hard stop banner */}
+            {hardStopBanner && (
+              <div className="p-3 bg-[#1a1a1a] border border-[#e67e22] rounded-lg">
+                <p className="text-xs text-[#e67e22]">{hardStopBanner.text}</p>
+              </div>
+            )}
+
+            {/* Mandatory pause timer */}
+            {mandatoryPauseEndsAt && isInMandatoryPause(mandatoryPauseEndsAt) && (
+              <div className="p-3 bg-[#1a1a1a] border border-[#e74c3c] rounded-lg">
+                <p className="text-xs text-[#e74c3c]">
+                  ⚠️ 30 min mandatory pause active. Next trade possible in: {formatPauseTimer(pauseTimerRemaining)}
+                </p>
+              </div>
+            )}
+
             <button
               onClick={() => {
+                // Check if in mandatory pause
+                if (mandatoryPauseEndsAt && isInMandatoryPause(mandatoryPauseEndsAt)) {
+                  setBlockMessage('30 min mandatory pause active. No new trades.')
+                  return
+                }
+
                 const check = canOpenTrade(session, selectedAccount ?? undefined)
                 if (check.allowed) {
                   setPhase('emotion_pick')
@@ -490,7 +537,7 @@ export default function SessionPage() {
                   setBlockMessage(check.reason ?? '')
                 }
               }}
-              disabled={!canOpenTrade(session, selectedAccount ?? undefined).allowed}
+              disabled={!canOpenTrade(session, selectedAccount ?? undefined).allowed || (mandatoryPauseEndsAt ? isInMandatoryPause(mandatoryPauseEndsAt) : false)}
               className="btn-primary w-full"
             >
               Ouvrir un trade
@@ -640,7 +687,27 @@ export default function SessionPage() {
                 }
               }
 
-              // 5. Transition de phase
+              // 5. Challenge 2: Detect 3 trades in last hour + activate 30-min pause
+              const { detected: threeInHour, pauseUntil } = await detectTradesPerHour(supabase, session.sessionId)
+              if (threeInHour && pauseUntil) {
+                setMandatoryPauseEndsAt(pauseUntil)
+                setPauseTimerRemaining(getRemainingPauseTime(pauseUntil))
+                // Start pause timer
+                if (pauseTimerRef.current) clearInterval(pauseTimerRef.current)
+                pauseTimerRef.current = setInterval(() => {
+                  setPauseTimerRemaining(prev => Math.max(0, prev - 1))
+                }, 1000)
+              }
+
+              // 6. Challenge 2: Check two consecutive losses → block session
+              const { blocked: twoLossesBlocked } = await checkTwoConsecutiveLosses(supabase, session.sessionId)
+              if (twoLossesBlocked) {
+                setBlockMessage('2 consecutive losses detected. Session ended for today.')
+                closeSession('max_losses')
+                return
+              }
+
+              // 7. Transition de phase
               if (newConsecLosses >= (selectedAccount?.max_consecutive_losses ?? 2)) {
                 closeSession('max_losses')
               } else {
@@ -1132,12 +1199,6 @@ function EmotionQuickPick({
           Annuler
         </button>
       </div>
-    </div>
-  )
-}
-    </div>
-  )
-}
     </div>
   )
 }
