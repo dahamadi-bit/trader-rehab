@@ -20,6 +20,8 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { clsx } from 'clsx'
 import Navigation from '@/components/shared/Navigation'
+import TradeJournalModal from '@/components/TradeJournalModal'
+import ControlSignalSummary from '@/components/ControlSignalSummary'
 import { analyzeRevengePatterns, getInterventionMessage } from '@/lib/revenge-detection'
 import { calculatePositionSize, canOpenTrade } from '@/lib/behavioral-engine'
 import { logBehavioralEvent, refreshDisciplineScore } from '@/lib/supabase'
@@ -48,6 +50,42 @@ const PreTradeSchema = z.object({
 type PreTradeFormData = z.infer<typeof PreTradeSchema>
 
 // ============================================================
+// HELPER FUNCTIONS — Control Signal Calculation
+// ============================================================
+
+async function calculateControlSignals(
+  supabase: any,
+  sessionId: string,
+  threeInHourDetected: boolean,
+  emotionBefore: TradeEmotion | null,
+  confidenceBefore: number | null
+) {
+  const signals = {
+    controlLoss: false,
+    revengeDetected: false,
+    emotionRisk: emotionBefore && confidenceBefore ? !isEmotionInIdealRange(emotionBefore, confidenceBefore) : false,
+    threeInHour: threeInHourDetected,
+  }
+
+  // Check for revenge pattern via existing revenge detection
+  const { data: previousTrade } = await supabase
+    .from('trades')
+    .select('exit_time, symbol')
+    .eq('session_id', sessionId)
+    .order('exit_time', { ascending: false })
+    .limit(2)
+
+  if (previousTrade && previousTrade.length >= 2) {
+    const timeSinceLast = new Date().getTime() - new Date(previousTrade[1].exit_time).getTime()
+    if (timeSinceLast < 15 * 60 * 1000 && previousTrade[0].symbol === previousTrade[1].symbol) {
+      signals.revengeDetected = true
+    }
+  }
+
+  return signals
+}
+
+// ============================================================
 // ÉTATS DE LA SESSION
 // ============================================================
 
@@ -72,6 +110,15 @@ export default function SessionPage() {
   const [hardStopBanner, setHardStopBanner] = useState<{ text: string; remaining: number } | null>(null)
   const [mandatoryPauseEndsAt, setMandatoryPauseEndsAt] = useState<Date | null>(null)
   const [pauseTimerRemaining, setPauseTimerRemaining] = useState(0)
+  // Phase 3: Post-trade journal modal
+  const [journalModalOpen, setJournalModalOpen] = useState(false)
+  const [lastClosedTrade, setLastClosedTrade] = useState<{ result: 'win' | 'loss' | 'breakeven'; pnl: number } | null>(null)
+  const [lastControlSignals, setLastControlSignals] = useState({
+    controlLoss: false,
+    revengeDetected: false,
+    emotionRisk: false,
+    threeInHour: false,
+  })
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const pauseTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
@@ -707,13 +754,76 @@ export default function SessionPage() {
                 return
               }
 
-              // 7. Transition de phase
+              // 7. Phase 3: Calculate control signals and prepare journal modal
+              const openTrade = openTrades?.[0]
+              if (openTrade) {
+                const { data: tradeData } = await supabase
+                  .from('trades')
+                  .select('emotion_before, confidence_level')
+                  .eq('id', openTrade.id)
+                  .single()
+
+                const controlSignals = await calculateControlSignals(
+                  supabase,
+                  session.sessionId,
+                  threeInHour,
+                  tradeData?.emotion_before as TradeEmotion | null,
+                  tradeData?.confidence_level ?? null
+                )
+
+                setLastClosedTrade({ result, pnl: pnlAmount })
+                setLastControlSignals(controlSignals)
+                setJournalModalOpen(true)
+              }
+
+              // 8. Transition de phase
               if (newConsecLosses >= (selectedAccount?.max_consecutive_losses ?? 2)) {
                 closeSession('max_losses')
               } else {
                 setPhase('idle')
               }
             }}
+          />
+        )}
+
+        {/* Phase 3: Post-trade journal modal */}
+        {journalModalOpen && lastClosedTrade && (
+          <TradeJournalModal
+            trade={{
+              symbol: session?.sessionId ? 'Trade' : 'Unknown',
+            }}
+            result={lastClosedTrade.result}
+            pnl={lastClosedTrade.pnl}
+            controlSignals={lastControlSignals}
+            onSubmit={async (data) => {
+              const { createClient } = await import('@/lib/supabase')
+              const supabase = createClient()
+
+              // Get the open trade (now closed) and update with journal data
+              const { data: openTrades } = await supabase
+                .from('trades')
+                .select('id')
+                .eq('session_id', session?.sessionId)
+                .order('created_at', { ascending: false })
+                .limit(1)
+
+              if (openTrades && openTrades[0]) {
+                await supabase.from('trades').update({
+                  emotion_after: data.emotion_after,
+                  emotion_after_note: data.emotion_after_note,
+                  thesis_correct: data.thesis_correct,
+                  reflection_note: data.reflection_note,
+                  control_loss_detected: data.control_loss_detected,
+                  revenge_trade_flag: lastControlSignals.revengeDetected,
+                  emotion_risk_flag: lastControlSignals.emotionRisk,
+                  three_trades_one_hour: lastControlSignals.threeInHour,
+                  signal_count: Object.values(lastControlSignals).filter(Boolean).length,
+                }).eq('id', openTrades[0].id)
+              }
+
+              setJournalModalOpen(false)
+            }}
+            onClose={() => setJournalModalOpen(false)}
           />
         )}
 
